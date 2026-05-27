@@ -1,0 +1,30 @@
+{
+  "name": "performance-review-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "deploy:cloud-run": "bash scripts/deploy-cloud-run.sh"
+  },
+  "dependencies": {
+    "@google-cloud/firestore": "^7.11.0",
+    "express": "^4.19.2",
+    "google-auth-library": "^9.14.1",
+    "googleapis": "^140.0.1",
+    "nanoid": "^5.0.7"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "packageManager": "pnpm@10.17.0+sha512.fce8a3dd29a4ed2ec566fb53efbb04d8c44a0f05bc6f24a73046910fb9c3ce7afa35a0980500668fa3573345bd644644fa98338fa168235c80f4aa17aa17fbef"
+}
