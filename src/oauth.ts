@@ -8,7 +8,9 @@ const SCOPES = [
   "openid",
   "email",
   "profile",
-  "https://www.googleapis.com/auth/drive"
+  "https://www.googleapis.com/auth/drive",
+  "https://www.googleapis.com/auth/documents",
+  "https://www.googleapis.com/auth/chat.messages.create"
 ];
 
 export function createOAuthClient(config: AppConfig): OAuth2Client {

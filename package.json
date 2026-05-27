@@ -8,8 +8,11 @@
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "dev:local": "bash scripts/dev-local.sh",
+    "tunnel": "ngrok http 8080",
     "build": "tsc",
     "start": "node dist/server.js",
+    "test": "pnpm build && node --test dist/**/*.test.js",
     "typecheck": "tsc --noEmit",
     "deploy:cloud-run": "bash scripts/deploy-cloud-run.sh"
   },

@@ -1,0 +1,43 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { loadConfig } from "./config.js";
+
+test("loadConfig allows missing EMPLOYEE_EMAIL_DOMAIN so the server can start", () => {
+  const previousEnv = { ...process.env };
+
+  try {
+    process.env.APP_BASE_URL = "https://example.test";
+    process.env.GOOGLE_CLIENT_ID = "client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "client-secret";
+    process.env.GOOGLE_REDIRECT_URI = "https://example.test/auth/google/callback";
+    process.env.REVIEWS_ROOT_FOLDER_ID = "root-folder-id";
+    delete process.env.REVIEW_REPORT_TEMPLATE_ID;
+    delete process.env.EMPLOYEE_EMAIL_DOMAINS;
+
+    const config = loadConfig();
+
+    assert.deepEqual(config.employeeEmailDomains, []);
+  } finally {
+    process.env = previousEnv;
+  }
+});
+
+test("loadConfig parses comma-separated employee email domains", () => {
+  const previousEnv = { ...process.env };
+
+  try {
+    process.env.APP_BASE_URL = "https://example.test";
+    process.env.GOOGLE_CLIENT_ID = "client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "client-secret";
+    process.env.GOOGLE_REDIRECT_URI = "https://example.test/auth/google/callback";
+    process.env.REVIEWS_ROOT_FOLDER_ID = "root-folder-id";
+    process.env.REVIEW_REPORT_TEMPLATE_ID = "report-template-id";
+    process.env.EMPLOYEE_EMAIL_DOMAINS = "fuse8.online, byteminds.co.uk";
+
+    const config = loadConfig();
+
+    assert.deepEqual(config.employeeEmailDomains, ["fuse8.online", "byteminds.co.uk"]);
+  } finally {
+    process.env = previousEnv;
+  }
+});

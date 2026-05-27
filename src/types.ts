@@ -14,16 +14,41 @@ export type OAuthState = {
 
 export type ReviewRequest = {
   fullName: string;
+  employeeEmail: string;
   reviewDate: string;
   needsClientForm: boolean;
 };
 
 export type ChatEvent = {
   type?: string;
+  commonEventObject?: {
+    formInputs?: Record<string, ChatFormInput>;
+    parameters?: Record<string, string>;
+  };
   user?: {
     name?: string;
     displayName?: string;
     email?: string;
+  };
+  chat?: {
+    space?: {
+      name?: string;
+    };
+    user?: {
+      name?: string;
+      displayName?: string;
+      email?: string;
+    };
+    appCommandPayload?: {
+      appCommandMetadata?: {
+        appCommandId?: number;
+        appCommandType?: string;
+      };
+    };
+    buttonClickedPayload?: {
+      isDialogEvent?: boolean;
+      dialogEventType?: string;
+    };
   };
   message?: {
     slashCommand?: {

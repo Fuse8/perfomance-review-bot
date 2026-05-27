@@ -48,10 +48,10 @@ PORT=8080
 
 ```bash
 pnpm install
-pnpm run dev
+pnpm dev:local
 ```
 
-Для локального теста Google Chat нужен публичный HTTPS URL, например через tunnel.
+Для локального теста Google Chat без billing см. [docs/local-google-chat-test.md](docs/local-google-chat-test.md).
 
 ## Cloud Run
 
@@ -78,14 +78,18 @@ gcloud run deploy performance-review-bot \
 - App URL: `https://<cloud-run-url>/google-chat/events`
 - Slash command:
   - Name: `/review`
-  - Command ID: любой, например `1`
+  - Command ID: `1`
   - Opens dialog: включить, если доступно в интерфейсе настройки.
+- Slash command для проверки:
+  - Name: `/ping`
+  - Command ID: `2`
 
 ## Проверка
 
 1. Открыть чат с ботом.
-2. Написать `/review`.
-3. Заполнить форму.
-4. Если бот попросил OAuth, нажать “Подключить Google”.
-5. Повторить `/review`.
-6. Проверить, что в root-папке появилась папка ревью.
+2. Написать `/ping` и проверить ответ `hello world`.
+3. Написать `/review`.
+4. Заполнить форму.
+5. Если бот попросил OAuth, нажать “Подключить Google”.
+6. Повторить `/review`.
+7. Проверить, что в root-папке появилась папка ревью.

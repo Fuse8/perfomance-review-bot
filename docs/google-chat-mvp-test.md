@@ -66,13 +66,18 @@ In Google Chat API configuration:
 - Slash command:
   - Name: `/review`
   - Command ID: `1`
+  - Opens dialog: enabled
+- Slash command:
+  - Name: `/ping`
+  - Command ID: `2`
   - Opens dialog: enabled, if this option is shown.
 
 ## Test
 
 1. Open Google Chat.
 2. Start direct message with the bot.
-3. Send `/review`.
+3. Send `/ping` and verify `hello world`.
+4. Send `/review`.
 4. Fill name, date, and client-form checkbox.
 5. Submit.
 6. Click “Подключить Google”.

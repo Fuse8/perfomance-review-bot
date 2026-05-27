@@ -6,43 +6,283 @@ export type CreatedFolder = {
   id: string;
   name: string;
   webViewLink: string;
+  report?: CreatedDriveFile;
+};
+
+export type CreatedDriveFile = {
+  id: string;
+  name: string;
+  webViewLink: string;
+};
+
+export type ReviewFolderRequest = {
+  fullName: string;
+  employeeEmail: string;
+  reviewerEmail: string;
+  reviewDate: string;
+  reviewMonth: string;
+};
+
+type DriveFilesResource = {
+  get(params: {
+    fileId: string;
+    fields: string;
+    supportsAllDrives: boolean;
+  }): Promise<{
+    data: {
+      mimeType?: string | null;
+    };
+  }>;
+  list(params: {
+    q: string;
+    fields: string;
+    pageSize: number;
+    supportsAllDrives: boolean;
+    includeItemsFromAllDrives: boolean;
+  }): Promise<{
+    data: {
+      files?: Array<{
+        id?: string | null;
+        name?: string | null;
+      }>;
+    };
+  }>;
+  create(params: {
+    requestBody: {
+      name: string;
+      mimeType: string;
+      parents: string[];
+    };
+    fields: string;
+    supportsAllDrives: boolean;
+  }): Promise<{
+    data: {
+      id?: string | null;
+      name?: string | null;
+      webViewLink?: string | null;
+    };
+  }>;
+  copy(params: {
+    fileId: string;
+    requestBody: {
+      name: string;
+      parents: string[];
+    };
+    fields: string;
+    supportsAllDrives: boolean;
+  }): Promise<{
+    data: {
+      id?: string | null;
+      name?: string | null;
+      webViewLink?: string | null;
+    };
+  }>;
+};
+
+type DrivePermissionsResource = {
+  create(params: {
+    fileId: string;
+    requestBody: {
+      type: "user";
+      role: "writer";
+      emailAddress: string;
+    };
+    fields: string;
+    supportsAllDrives: boolean;
+    sendNotificationEmail: boolean;
+  }): Promise<unknown>;
+};
+
+type DriveResource = {
+  files: DriveFilesResource;
+  permissions?: DrivePermissionsResource;
+  documents?: {
+    batchUpdate(params: {
+      documentId: string;
+      requestBody: {
+        requests: Array<{
+          replaceAllText: {
+            containsText: {
+              text: string;
+              matchCase: boolean;
+            };
+            replaceText: string;
+          };
+        }>;
+      };
+    }): Promise<unknown>;
+  };
 };
 
 export async function createReviewFolder(
   config: AppConfig,
   refreshToken: string,
-  folderName: string
+  request: ReviewFolderRequest
 ): Promise<CreatedFolder> {
   const auth = createOAuthClient(config);
   auth.setCredentials({ refresh_token: refreshToken });
 
   const drive = google.drive({ version: "v3", auth });
+  const docs = google.docs({ version: "v1", auth });
 
-  const root = await drive.files.get({
-    fileId: config.reviewsRootFolderId,
-    fields: "id,name,mimeType"
+  return createReviewFolderInDrive({ ...drive, documents: docs.documents }, {
+    rootFolderId: config.reviewsRootFolderId,
+    reviewReportTemplateId: config.reviewReportTemplateId,
+    ...request
+  });
+}
+
+export async function createReviewFolderInDrive(
+  drive: DriveResource,
+  request: ReviewFolderRequest & { rootFolderId: string; reviewReportTemplateId: string }
+): Promise<CreatedFolder> {
+  const { files } = drive;
+  const root = await files.get({
+    fileId: request.rootFolderId,
+    fields: "id,name,mimeType",
+    supportsAllDrives: true
   });
 
   if (root.data.mimeType !== "application/vnd.google-apps.folder") {
     throw new Error("REVIEWS_ROOT_FOLDER_ID is not a Google Drive folder");
   }
 
-  const { data } = await drive.files.create({
+  const employeeFolder = await findEmployeeFolder(files, request.rootFolderId, request.fullName);
+  if (!employeeFolder?.id) {
+    throw new Error(`Папка сотрудника не найдена: ${request.fullName}`);
+  }
+
+  const { data } = await files.create({
     requestBody: {
-      name: folderName,
+      name: request.reviewMonth,
       mimeType: "application/vnd.google-apps.folder",
-      parents: [config.reviewsRootFolderId]
+      parents: [employeeFolder.id]
     },
-    fields: "id,name,webViewLink"
+    fields: "id,name,webViewLink",
+    supportsAllDrives: true
   });
 
   if (!data.id || !data.name || !data.webViewLink) {
     throw new Error("Google Drive did not return created folder metadata");
   }
 
+  if (normalizeEmail(request.employeeEmail) !== normalizeEmail(request.reviewerEmail)) {
+    await drive.permissions?.create({
+      fileId: data.id,
+      requestBody: {
+        type: "user",
+        role: "writer",
+        emailAddress: request.employeeEmail
+      },
+      fields: "id",
+      supportsAllDrives: true,
+      sendNotificationEmail: false
+    });
+  }
+
+  const folder = {
+    id: data.id,
+    name: data.name,
+    webViewLink: data.webViewLink
+  };
+
+  const report = await copyReportFromTemplate(drive, request, folder);
+
+  return {
+    ...folder,
+    report
+  };
+}
+
+export function normalizePersonName(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+async function findEmployeeFolder(
+  files: DriveFilesResource,
+  rootFolderId: string,
+  fullName: string
+): Promise<{ id: string; name: string } | null> {
+  const normalizedFullName = normalizePersonName(fullName);
+  const escapedRootFolderId = escapeDriveQueryValue(rootFolderId);
+  const { data } = await files.list({
+    q: `'${escapedRootFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+    fields: "files(id,name)",
+    pageSize: 100,
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true
+  });
+
+  const folder = data.files?.find(
+    (file) => file.id && file.name && normalizePersonName(file.name) === normalizedFullName
+  );
+
+  if (!folder?.id || !folder.name) {
+    return null;
+  }
+
+  return {
+    id: folder.id,
+    name: folder.name
+  };
+}
+
+function escapeDriveQueryValue(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll("'", "\\'");
+}
+
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+async function copyReportFromTemplate(
+  drive: DriveResource,
+  request: ReviewFolderRequest & { reviewReportTemplateId: string },
+  folder: CreatedDriveFile
+): Promise<CreatedDriveFile> {
+  const reportName = `${request.fullName} // Отчёт Performance Review // ${request.reviewDate.slice(0, 7)}`;
+  const { data } = await drive.files.copy({
+    fileId: request.reviewReportTemplateId,
+    requestBody: {
+      name: reportName,
+      parents: [folder.id]
+    },
+    fields: "id,name,webViewLink",
+    supportsAllDrives: true
+  });
+
+  if (!data.id || !data.name || !data.webViewLink) {
+    throw new Error("Google Drive did not return copied report metadata");
+  }
+
+  await drive.documents?.batchUpdate({
+    documentId: data.id,
+    requestBody: {
+      requests: [
+        replaceText("{{FULL_NAME}}", request.fullName),
+        replaceText("{{REVIEW_DATE}}", request.reviewDate),
+        replaceText("{{REVIEWER_EMAIL}}", request.reviewerEmail),
+        replaceText("{{REVIEW_FOLDER_URL}}", folder.webViewLink),
+        replaceText("{{PREVIOUS_REVIEW_URL}}", "")
+      ]
+    }
+  });
+
   return {
     id: data.id,
     name: data.name,
     webViewLink: data.webViewLink
+  };
+}
+
+function replaceText(text: string, replaceTextValue: string) {
+  return {
+    replaceAllText: {
+      containsText: {
+        text,
+        matchCase: true
+      },
+      replaceText: replaceTextValue
+    }
   };
 }

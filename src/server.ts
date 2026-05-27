@@ -2,10 +2,10 @@ import express from "express";
 import { loadConfig } from "./config.js";
 import { handleChatEvent } from "./chat.js";
 import { buildAuthUrl, completeOAuth } from "./oauth.js";
-import { TokenStorage } from "./storage.js";
+import { createTokenStorage } from "./storage.js";
 
 const config = loadConfig();
-const storage = new TokenStorage();
+const storage = createTokenStorage(config);
 const app = express();
 
 app.use(express.json());
@@ -66,12 +66,17 @@ app.get("/auth/google/callback", async (req, res, next) => {
 app.use(
   (
     error: unknown,
-    _req: express.Request,
+    req: express.Request,
     res: express.Response,
     _next: express.NextFunction
   ) => {
     const message = error instanceof Error ? error.message : "Unknown error";
-    console.error(error);
+    console.error("[server] request failed", {
+      method: req.method,
+      path: req.path,
+      message,
+      stack: error instanceof Error ? error.stack : undefined
+    });
     res.status(500).json({ error: message });
   }
 );

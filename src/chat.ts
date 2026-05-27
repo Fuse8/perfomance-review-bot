@@ -1,69 +1,234 @@
 import type { AppConfig } from "./config.js";
 import { createReviewFolder } from "./drive.js";
+import { sendChatMessage } from "./google-chat.js";
 import { buildAuthUrl } from "./oauth.js";
 import type { TokenStorage } from "./storage.js";
 import type { ChatEvent, ChatFormInput, ReviewRequest } from "./types.js";
 
 const SUBMIT_FUNCTION = "submitReview";
+const REVIEW_COMMAND_ID = 1;
+const HEALTH_COMMAND_ID = 2;
 
-export async function handleChatEvent(
-  config: AppConfig,
-  storage: TokenStorage,
-  event: ChatEvent
-): Promise<Record<string, unknown>> {
-  const chatUserId = event.user?.name;
+type ChatEventHandlerDeps = {
+  createReviewFolder: typeof createReviewFolder;
+  buildAuthUrl: typeof buildAuthUrl;
+  sendChatMessage: typeof sendChatMessage;
+};
 
-  if (!chatUserId) {
-    return textResponse("Не удалось определить пользователя Google Chat.");
+const defaultDeps: ChatEventHandlerDeps = {
+  createReviewFolder,
+  buildAuthUrl,
+  sendChatMessage
+};
+
+export function createChatEventHandler(deps: Partial<ChatEventHandlerDeps> = {}) {
+  const resolvedDeps = { ...defaultDeps, ...deps };
+
+  return async function handleChatEventWithDeps(
+    config: AppConfig,
+    storage: TokenStorage,
+    event: ChatEvent
+  ): Promise<Record<string, unknown>> {
+    const chatUserId = event.user?.name ?? event.chat?.user?.name;
+    const appCommandId = event.chat?.appCommandPayload?.appCommandMetadata?.appCommandId;
+    const actionName =
+      event.common?.invokedFunction ?? event.commonEventObject?.parameters?.actionName;
+    const formInputs = event.common?.formInputs ?? event.commonEventObject?.formInputs ?? {};
+
+    logChatEvent("received", {
+      appCommandId,
+      actionName,
+      hasChatUserId: Boolean(chatUserId),
+      formInputKeys: Object.keys(formInputs),
+      dialogEventType: event.chat?.buttonClickedPayload?.dialogEventType,
+      isDialogEvent: event.chat?.buttonClickedPayload?.isDialogEvent
+    });
+
+    if (appCommandId === HEALTH_COMMAND_ID) {
+      logChatEvent("route.check");
+      return addOnTextResponse("hello world");
+    }
+
+    if (!chatUserId) {
+      logChatEvent("route.missingUser");
+      return textResponse("Не удалось определить пользователя Google Chat.");
+    }
+
+  if (actionName === SUBMIT_FUNCTION) {
+    logChatEvent("route.submit");
+    return handleReviewSubmit(config, storage, chatUserId, event, resolvedDeps);
   }
 
-  if (event.common?.invokedFunction === SUBMIT_FUNCTION) {
-    return handleReviewSubmit(config, storage, chatUserId, event);
+  if (appCommandId === REVIEW_COMMAND_ID) {
+    logChatEvent("route.reviewDialog");
+    return addOnDialogResponse(reviewFormCard(config));
   }
 
-  return dialogResponse(reviewFormCard());
+  logChatEvent("route.unknownCommand", { appCommandId, actionName });
+  return textResponse("Неизвестная команда Google Chat.");
+  };
 }
+
+export const handleChatEvent = createChatEventHandler();
 
 async function handleReviewSubmit(
   config: AppConfig,
   storage: TokenStorage,
   chatUserId: string,
-  event: ChatEvent
+  event: ChatEvent,
+  deps: ChatEventHandlerDeps
 ): Promise<Record<string, unknown>> {
-  const parsed = parseReviewRequest(event.common?.formInputs ?? {});
+  const isAddOnEvent = Boolean(event.chat?.buttonClickedPayload || event.commonEventObject);
+  const isDialogSubmit = event.chat?.buttonClickedPayload?.dialogEventType === "SUBMIT_DIALOG";
+  const inputs = event.common?.formInputs ?? event.commonEventObject?.formInputs ?? {};
+  logChatEvent("submit.inputs", summarizeFormInputs(inputs));
+
+  const parsed = parseReviewRequest(config, inputs);
 
   if (!parsed.ok) {
+    logChatEvent("submit.validationFailed", { error: parsed.error });
+    if (isDialogSubmit) {
+      if (event.commonEventObject) {
+        return addOnTextResponse(parsed.error);
+      }
+      return dialogActionStatusResponse(parsed.error, "INVALID_ARGUMENT");
+    }
+    if (isAddOnEvent) {
+      return addOnTextResponse(parsed.error);
+    }
     return actionResponseText(parsed.error);
+  }
+
+  if (!config.reviewReportTemplateId) {
+    const errorText = "Настройте REVIEW_REPORT_TEMPLATE_ID в .env.local или .env.";
+    logChatEvent("submit.validationFailed", { error: errorText });
+    if (isDialogSubmit) {
+      if (event.commonEventObject) {
+        return addOnTextResponse(errorText);
+      }
+      return dialogActionStatusResponse(errorText, "INVALID_ARGUMENT");
+    }
+    if (isAddOnEvent) {
+      return addOnTextResponse(errorText);
+    }
+    return actionResponseText(errorText);
   }
 
   const token = await storage.get(chatUserId);
   if (!token) {
-    const authUrl = await buildAuthUrl(config, storage, chatUserId);
+    logChatEvent("submit.authRequired", { chatUserId });
+    const authUrl = await deps.buildAuthUrl(config, storage, chatUserId);
+    if (isAddOnEvent) {
+      return addOnTextResponse(
+        [
+          "Нужно подключить Google-аккаунт ревьюера.",
+          "Откройте ссылку, пройдите OAuth и повторите /review:",
+          authUrl
+        ].join("\n")
+      );
+    }
     return actionResponseCard(authRequiredCard(authUrl));
   }
 
   const month = formatReviewMonth(parsed.value.reviewDate);
-  const folderName = `${parsed.value.fullName} // ${month}`;
-  const folder = await createReviewFolder(config, token.refreshToken, folderName);
 
-  return actionResponseText(
-    [
-      `Создана тестовая папка PR: ${folder.name}`,
-      `Ссылка: ${folder.webViewLink}`,
-      `Клиентская форма: ${parsed.value.needsClientForm ? "нужна" : "не нужна"}`
-    ].join("\n")
-  );
+  logChatEvent("submit.createFolder.start", {
+    fullName: parsed.value.fullName,
+    reviewMonth: month,
+    needsClientForm: parsed.value.needsClientForm
+  });
+  let folder;
+  try {
+    folder = await deps.createReviewFolder(config, token.refreshToken, {
+      fullName: parsed.value.fullName,
+      employeeEmail: parsed.value.employeeEmail,
+      reviewerEmail: token.googleUserEmail,
+      reviewDate: parsed.value.reviewDate,
+      reviewMonth: month
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    logChatEvent("submit.createFolder.failed", { message });
+    const errorText = [
+      "Не удалось создать папку ревью.",
+      `Ошибка Google Drive: ${message}`
+    ].join("\n");
+
+    if (isDialogSubmit) {
+      if (event.commonEventObject) {
+        return addOnTextResponse(errorText);
+      }
+      void sendSubmitResultToChat(config, deps, token.refreshToken, event, errorText);
+      return dialogActionStatusResponse(
+        "Не удалось выполнить /review. Ошибка отправлена в чат.",
+        "INVALID_ARGUMENT"
+      );
+    }
+
+    if (isAddOnEvent) {
+      return addOnTextResponse(errorText);
+    }
+
+    return actionResponseText(errorText);
+  }
+  logChatEvent("submit.createFolder.success", {
+    folderName: folder.name,
+    hasLink: Boolean(folder.webViewLink)
+  });
+
+  const successText = [
+    `Создана папка ревью: ${folder.name}`,
+    `Ссылка: ${folder.webViewLink}`,
+    ...(folder.report?.webViewLink ? [`PR report: ${folder.report.webViewLink}`] : []),
+    `Клиентская форма: ${parsed.value.needsClientForm ? "нужна" : "не нужна"}`
+  ].join("\n");
+
+  if (isDialogSubmit) {
+    if (event.commonEventObject) {
+      return addOnTextResponse(successText);
+    }
+    void sendSubmitResultToChat(config, deps, token.refreshToken, event, successText);
+    return dialogActionStatusResponse("Готово. Отчёт отправлен в чат.", "OK");
+  }
+
+  if (isAddOnEvent) {
+    return addOnTextResponse(successText);
+  }
+
+  return actionResponseText(successText);
 }
 
-function parseReviewRequest(inputs: Record<string, ChatFormInput>):
+function parseReviewRequest(
+  config: AppConfig,
+  inputs: Record<string, ChatFormInput>
+):
   | { ok: true; value: ReviewRequest }
   | { ok: false; error: string } {
   const fullName = getStringInput(inputs.fullName).trim();
+  const employeeEmail = getStringInput(inputs.employeeEmail).trim().toLowerCase();
   const reviewDate = getDateInput(inputs.reviewDate);
   const needsClientForm = getStringInput(inputs.needsClientForm) === "yes";
 
   if (!fullName) {
     return { ok: false, error: "Укажите имя и фамилию." };
+  }
+
+  if (!employeeEmail) {
+    return { ok: false, error: "Укажите email сотрудника." };
+  }
+
+  if (config.employeeEmailDomains.length === 0) {
+    return {
+      ok: false,
+      error: "Настройте EMPLOYEE_EMAIL_DOMAINS в .env.local или .env."
+    };
+  }
+
+  if (!isEmailInDomains(employeeEmail, config.employeeEmailDomains)) {
+    return {
+      ok: false,
+      error: `Email сотрудника должен быть в одном из доменов: ${config.employeeEmailDomains.join(", ")}.`
+    };
   }
 
   if (!reviewDate) {
@@ -74,6 +239,7 @@ function parseReviewRequest(inputs: Record<string, ChatFormInput>):
     ok: true,
     value: {
       fullName,
+      employeeEmail,
       reviewDate,
       needsClientForm
     }
@@ -92,12 +258,102 @@ function getDateInput(input: ChatFormInput | undefined): string {
   return new Date(Number(msSinceEpoch)).toISOString().slice(0, 10);
 }
 
+function logChatEvent(message: string, data?: Record<string, unknown>): void {
+  const timestamp = new Date().toISOString();
+  if (data) {
+    console.log(`[chat] ${timestamp} ${message}`, JSON.stringify(data));
+    return;
+  }
+  console.log(`[chat] ${timestamp} ${message}`);
+}
+
+function summarizeFormInputs(inputs: Record<string, ChatFormInput>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(inputs).map(([key, value]) => [
+      key,
+      {
+        hasStringInputs: Boolean(value.stringInputs?.value?.length),
+        hasDateInput: Boolean(value.dateInput?.msSinceEpoch)
+      }
+    ])
+  );
+}
+
 function formatReviewMonth(date: string): string {
   return date.slice(0, 7).replace("-", ".");
 }
 
+function isEmailInDomains(email: string, domains: string[]): boolean {
+  return domains.some((domain) => email.endsWith(`@${domain.toLowerCase()}`));
+}
+
+async function sendSubmitResultToChat(
+  config: AppConfig,
+  deps: ChatEventHandlerDeps,
+  refreshToken: string,
+  event: ChatEvent,
+  text: string
+): Promise<void> {
+  const spaceName = event.chat?.space?.name;
+  if (!spaceName) {
+    logChatEvent("submit.sendChatMessage.skipped", { reason: "missingSpaceName" });
+    return;
+  }
+
+  try {
+    await deps.sendChatMessage(config, refreshToken, spaceName, text);
+    logChatEvent("submit.sendChatMessage.success", { spaceName });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    logChatEvent("submit.sendChatMessage.failed", { spaceName, message });
+  }
+}
+
 function textResponse(text: string): Record<string, unknown> {
   return { text };
+}
+
+function addOnTextResponse(text: string): Record<string, unknown> {
+  return {
+    hostAppDataAction: {
+      chatDataAction: {
+        createMessageAction: {
+          message: {
+            text
+          }
+        }
+      }
+    }
+  };
+}
+
+function addOnDialogResponse(card: Record<string, unknown>): Record<string, unknown> {
+  return {
+    action: {
+      navigations: [
+        {
+          pushCard: card
+        }
+      ]
+    }
+  };
+}
+
+function dialogActionStatusResponse(
+  text: string,
+  statusCode: "OK" | "INVALID_ARGUMENT"
+): Record<string, unknown> {
+  return {
+    actionResponse: {
+      type: "DIALOG",
+      dialogAction: {
+        actionStatus: {
+          statusCode,
+          userFacingMessage: text
+        }
+      }
+    }
+  };
 }
 
 function dialogResponse(card: Record<string, unknown>): Record<string, unknown> {
@@ -136,7 +392,7 @@ function actionResponseCard(card: Record<string, unknown>): Record<string, unkno
   };
 }
 
-function reviewFormCard(): Record<string, unknown> {
+function reviewFormCard(config: AppConfig): Record<string, unknown> {
   return {
     header: {
       title: "Запуск Performance Review"
@@ -148,6 +404,12 @@ function reviewFormCard(): Record<string, unknown> {
             textInput: {
               name: "fullName",
               label: "Имя и фамилия"
+            }
+          },
+          {
+            textInput: {
+              name: "employeeEmail",
+              label: "Email сотрудника"
             }
           },
           {
@@ -177,7 +439,13 @@ function reviewFormCard(): Record<string, unknown> {
                   text: "Создать тестовую папку",
                   onClick: {
                     action: {
-                      function: SUBMIT_FUNCTION
+                      function: `${config.appBaseUrl}/google-chat/events`,
+                      parameters: [
+                        {
+                          key: "actionName",
+                          value: SUBMIT_FUNCTION
+                        }
+                      ]
                     }
                   }
                 }
