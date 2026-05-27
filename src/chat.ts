@@ -1,5 +1,5 @@
 import type { AppConfig } from "./config.js";
-import { createReviewFolder } from "./drive.js";
+import { createReviewFolder, type CreatedFolder } from "./drive.js";
 import { sendChatMessage } from "./google-chat.js";
 import { buildAuthUrl } from "./oauth.js";
 import type { TokenStorage } from "./storage.js";
@@ -114,6 +114,36 @@ async function handleReviewSubmit(
     return actionResponseText(errorText);
   }
 
+  if (!config.internalReviewFormTemplateId) {
+    const errorText = "Настройте INTERNAL_REVIEW_FORM_TEMPLATE_ID в .env.local или .env.";
+    logChatEvent("submit.validationFailed", { error: errorText });
+    if (isDialogSubmit) {
+      if (event.commonEventObject) {
+        return addOnTextResponse(errorText);
+      }
+      return dialogActionStatusResponse(errorText, "INVALID_ARGUMENT");
+    }
+    if (isAddOnEvent) {
+      return addOnTextResponse(errorText);
+    }
+    return actionResponseText(errorText);
+  }
+
+  if (parsed.value.needsClientForm && !config.clientReviewFormTemplateId) {
+    const errorText = "Настройте CLIENT_REVIEW_FORM_TEMPLATE_ID в .env.local или .env.";
+    logChatEvent("submit.validationFailed", { error: errorText });
+    if (isDialogSubmit) {
+      if (event.commonEventObject) {
+        return addOnTextResponse(errorText);
+      }
+      return dialogActionStatusResponse(errorText, "INVALID_ARGUMENT");
+    }
+    if (isAddOnEvent) {
+      return addOnTextResponse(errorText);
+    }
+    return actionResponseText(errorText);
+  }
+
   const token = await storage.get(chatUserId);
   if (!token) {
     logChatEvent("submit.authRequired", { chatUserId });
@@ -144,7 +174,8 @@ async function handleReviewSubmit(
       employeeEmail: parsed.value.employeeEmail,
       reviewerEmail: token.googleUserEmail,
       reviewDate: parsed.value.reviewDate,
-      reviewMonth: month
+      reviewMonth: month,
+      needsClientForm: parsed.value.needsClientForm
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -176,12 +207,7 @@ async function handleReviewSubmit(
     hasLink: Boolean(folder.webViewLink)
   });
 
-  const successText = [
-    `Создана папка ревью: ${folder.name}`,
-    `Ссылка: ${folder.webViewLink}`,
-    ...(folder.report?.webViewLink ? [`PR report: ${folder.report.webViewLink}`] : []),
-    `Клиентская форма: ${parsed.value.needsClientForm ? "нужна" : "не нужна"}`
-  ].join("\n");
+  const successText = formatReviewSuccessMessage(folder, parsed.value.needsClientForm);
 
   if (isDialogSubmit) {
     if (event.commonEventObject) {
@@ -281,6 +307,20 @@ function summarizeFormInputs(inputs: Record<string, ChatFormInput>): Record<stri
 
 function formatReviewMonth(date: string): string {
   return date.slice(0, 7).replace("-", ".");
+}
+
+function formatReviewSuccessMessage(folder: CreatedFolder, needsClientForm: boolean): string {
+  return [
+    `Создана папка ревью: ${folder.name}`,
+    `Ссылка: ${folder.webViewLink}`,
+    ...(folder.report?.webViewLink ? [`PR report: ${folder.report.webViewLink}`] : []),
+    ...(folder.internalForm?.webViewLink
+      ? [`Internal feedback form: ${folder.internalForm.webViewLink}`]
+      : []),
+    ...(needsClientForm && folder.clientForm?.webViewLink
+      ? [`Client feedback form: ${folder.clientForm.webViewLink}`]
+      : [])
+  ].join("\n");
 }
 
 function isEmailInDomains(email: string, domains: string[]): boolean {

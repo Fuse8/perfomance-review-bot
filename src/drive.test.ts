@@ -47,11 +47,23 @@ test("createReviewFolderInDrive creates review month folder inside matched emplo
         name: params.requestBody?.name,
         parents: params.requestBody?.parents
       });
+      const webViewLink =
+        params.fileId === "internal-form-template-id"
+          ? "https://docs.google.com/forms/internal-form-id"
+          : params.fileId === "client-form-template-id"
+            ? "https://docs.google.com/forms/client-form-id"
+            : "https://docs.google.com/document/report-id";
+      const id =
+        params.fileId === "internal-form-template-id"
+          ? "internal-form-id"
+          : params.fileId === "client-form-template-id"
+            ? "client-form-id"
+            : "report-id";
       return {
         data: {
-          id: "report-id",
+          id,
           name: params.requestBody?.name,
-          webViewLink: "https://docs.google.com/document/report-id"
+          webViewLink
         }
       };
     }
@@ -91,20 +103,35 @@ test("createReviewFolderInDrive creates review month folder inside matched emplo
   const folder = await createReviewFolderInDrive({ files, permissions: permissionsResource, documents }, {
     rootFolderId: "root-folder-id",
     reviewReportTemplateId: "report-template-id",
+    internalReviewFormTemplateId: "internal-form-template-id",
+    clientReviewFormTemplateId: "client-form-template-id",
     fullName: "Ivan Petrov",
     employeeEmail: "ivan.petrov@example.test",
     reviewerEmail: "reviewer@example.test",
     reviewDate: "2026-06-15",
-    reviewMonth: "2026.06"
+    reviewMonth: "2026.06",
+    needsClientForm: true
   });
 
   assert.equal(folder.name, "2026.06");
   assert.equal(folder.report?.webViewLink, "https://docs.google.com/document/report-id");
+  assert.equal(folder.internalForm?.webViewLink, "https://docs.google.com/forms/internal-form-id");
+  assert.equal(folder.clientForm?.webViewLink, "https://docs.google.com/forms/client-form-id");
   assert.deepEqual(createdParents, [["employee-folder-id"]]);
   assert.deepEqual(copiedFiles, [
     {
       fileId: "report-template-id",
       name: "Ivan Petrov // Отчёт Performance Review // 2026-06",
+      parents: ["month-folder-id"]
+    },
+    {
+      fileId: "internal-form-template-id",
+      name: "Ivan Petrov // Internal Feedback Form // 2026-06",
+      parents: ["month-folder-id"]
+    },
+    {
+      fileId: "client-form-template-id",
+      name: "Ivan Petrov // Client Feedback Form // 2026-06",
       parents: ["month-folder-id"]
     }
   ]);
@@ -119,8 +146,93 @@ test("createReviewFolderInDrive creates review month folder inside matched emplo
     {
       fileId: "month-folder-id",
       emailAddress: "ivan.petrov@example.test"
+    },
+    {
+      fileId: "internal-form-id",
+      emailAddress: "ivan.petrov@example.test"
+    },
+    {
+      fileId: "client-form-id",
+      emailAddress: "ivan.petrov@example.test"
     }
   ]);
+});
+
+test("createReviewFolderInDrive creates only internal form when client form is not needed", async () => {
+  const copiedFiles: Array<{ fileId: string; name?: string; parents?: string[] }> = [];
+  const files = {
+    async get() {
+      return {
+        data: {
+          mimeType: "application/vnd.google-apps.folder"
+        }
+      };
+    },
+    async list() {
+      return {
+        data: {
+          files: [
+            {
+              id: "employee-folder-id",
+              name: "Ivan Petrov"
+            }
+          ]
+        }
+      };
+    },
+    async create() {
+      return {
+        data: {
+          id: "month-folder-id",
+          name: "2026.06",
+          webViewLink: "https://drive.google.com/month-folder"
+        }
+      };
+    },
+    async copy(params: { fileId: string; requestBody?: { name?: string; parents?: string[] } }) {
+      copiedFiles.push({
+        fileId: params.fileId,
+        name: params.requestBody?.name,
+        parents: params.requestBody?.parents
+      });
+      const webViewLink =
+        params.fileId === "internal-form-template-id"
+          ? "https://docs.google.com/forms/internal-form-id"
+          : "https://docs.google.com/document/report-id";
+      return {
+        data: {
+          id: params.fileId === "internal-form-template-id" ? "internal-form-id" : "report-id",
+          name: params.requestBody?.name,
+          webViewLink
+        }
+      };
+    }
+  };
+  const documents = {
+    async batchUpdate() {
+      return { data: {} };
+    }
+  };
+
+  const folder = await createReviewFolderInDrive({ files, documents }, {
+    rootFolderId: "root-folder-id",
+    reviewReportTemplateId: "report-template-id",
+    internalReviewFormTemplateId: "internal-form-template-id",
+    clientReviewFormTemplateId: "client-form-template-id",
+    fullName: "Ivan Petrov",
+    employeeEmail: "ivan.petrov@example.test",
+    reviewerEmail: "reviewer@example.test",
+    reviewDate: "2026-06-15",
+    reviewMonth: "2026.06",
+    needsClientForm: false
+  });
+
+  assert.equal(folder.internalForm?.webViewLink, "https://docs.google.com/forms/internal-form-id");
+  assert.equal(folder.clientForm, undefined);
+  assert.deepEqual(
+    copiedFiles.map((file) => file.fileId),
+    ["report-template-id", "internal-form-template-id"]
+  );
 });
 
 test("createReviewFolderInDrive skips permission grant when employee is the reviewer", async () => {
@@ -133,14 +245,17 @@ test("createReviewFolderInDrive skips permission grant when employee is the revi
     }
   };
 
-  await createReviewFolderInDrive({ files, permissions }, {
+  await createReviewFolderInDrive({ files, permissions, documents: { async batchUpdate() { return { data: {} }; } } }, {
     rootFolderId: "root-folder-id",
     reviewReportTemplateId: "report-template-id",
+    internalReviewFormTemplateId: "internal-form-template-id",
+    clientReviewFormTemplateId: "client-form-template-id",
     fullName: "Ivan Petrov",
     employeeEmail: "dmitry.berdnikov@fuse8.online",
     reviewerEmail: "dmitry.berdnikov@fuse8.online",
     reviewDate: "2026-06-15",
-    reviewMonth: "2026.06"
+    reviewMonth: "2026.06",
+    needsClientForm: false
   });
 
   assert.equal(permissionCalls, 0);
@@ -175,11 +290,14 @@ test("createReviewFolderInDrive fails when employee folder is missing", async ()
       createReviewFolderInDrive({ files }, {
         rootFolderId: "root-folder-id",
         reviewReportTemplateId: "report-template-id",
+        internalReviewFormTemplateId: "internal-form-template-id",
+        clientReviewFormTemplateId: "client-form-template-id",
         fullName: "Ivan Petrov",
         employeeEmail: "ivan.petrov@example.test",
         reviewerEmail: "reviewer@example.test",
         reviewDate: "2026-06-15",
-        reviewMonth: "2026.06"
+        reviewMonth: "2026.06",
+        needsClientForm: false
       }),
     /Папка сотрудника не найдена: Ivan Petrov/
   );
@@ -215,12 +333,16 @@ function createFilesStub() {
         }
       };
     },
-    async copy() {
+    async copy(params: { fileId: string; requestBody?: { name?: string } }) {
+      const webViewLink =
+        params.fileId === "internal-form-template-id"
+          ? "https://docs.google.com/forms/internal-form-id"
+          : "https://docs.google.com/document/report-id";
       return {
         data: {
-          id: "report-id",
-          name: "Ivan Petrov // Отчёт Performance Review // 2026-06",
-          webViewLink: "https://docs.google.com/document/report-id"
+          id: params.fileId === "internal-form-template-id" ? "internal-form-id" : "report-id",
+          name: params.requestBody?.name,
+          webViewLink
         }
       };
     }

@@ -5,6 +5,8 @@ export type AppConfig = {
   googleRedirectUri: string;
   reviewsRootFolderId: string;
   reviewReportTemplateId: string;
+  internalReviewFormTemplateId: string;
+  clientReviewFormTemplateId: string;
   employeeEmailDomains: string[];
   storageDriver: "firestore" | "local";
   localStoragePath: string;
@@ -29,6 +31,8 @@ export function loadConfig(): AppConfig {
     googleRedirectUri: requiredEnv("GOOGLE_REDIRECT_URI"),
     reviewsRootFolderId: requiredEnv("REVIEWS_ROOT_FOLDER_ID"),
     reviewReportTemplateId: process.env.REVIEW_REPORT_TEMPLATE_ID ?? "",
+    internalReviewFormTemplateId: process.env.INTERNAL_REVIEW_FORM_TEMPLATE_ID ?? "",
+    clientReviewFormTemplateId: process.env.CLIENT_REVIEW_FORM_TEMPLATE_ID ?? "",
     employeeEmailDomains: normalizeOptionalDomains(
       process.env.EMPLOYEE_EMAIL_DOMAINS
     ),

@@ -7,6 +7,8 @@ export type CreatedFolder = {
   name: string;
   webViewLink: string;
   report?: CreatedDriveFile;
+  internalForm?: CreatedDriveFile;
+  clientForm?: CreatedDriveFile;
 };
 
 export type CreatedDriveFile = {
@@ -21,6 +23,7 @@ export type ReviewFolderRequest = {
   reviewerEmail: string;
   reviewDate: string;
   reviewMonth: string;
+  needsClientForm: boolean;
 };
 
 type DriveFilesResource = {
@@ -128,13 +131,20 @@ export async function createReviewFolder(
   return createReviewFolderInDrive({ ...drive, documents: docs.documents }, {
     rootFolderId: config.reviewsRootFolderId,
     reviewReportTemplateId: config.reviewReportTemplateId,
+    internalReviewFormTemplateId: config.internalReviewFormTemplateId,
+    clientReviewFormTemplateId: config.clientReviewFormTemplateId,
     ...request
   });
 }
 
 export async function createReviewFolderInDrive(
   drive: DriveResource,
-  request: ReviewFolderRequest & { rootFolderId: string; reviewReportTemplateId: string }
+  request: ReviewFolderRequest & {
+    rootFolderId: string;
+    reviewReportTemplateId: string;
+    internalReviewFormTemplateId: string;
+    clientReviewFormTemplateId: string;
+  }
 ): Promise<CreatedFolder> {
   const { files } = drive;
   const root = await files.get({
@@ -167,17 +177,7 @@ export async function createReviewFolderInDrive(
   }
 
   if (normalizeEmail(request.employeeEmail) !== normalizeEmail(request.reviewerEmail)) {
-    await drive.permissions?.create({
-      fileId: data.id,
-      requestBody: {
-        type: "user",
-        role: "writer",
-        emailAddress: request.employeeEmail
-      },
-      fields: "id",
-      supportsAllDrives: true,
-      sendNotificationEmail: false
-    });
+    await grantEmployeeWriterAccess(drive, data.id, request.employeeEmail);
   }
 
   const folder = {
@@ -187,10 +187,30 @@ export async function createReviewFolderInDrive(
   };
 
   const report = await copyReportFromTemplate(drive, request, folder);
+  const internalForm = await copyFormFromTemplate(
+    drive,
+    request.internalReviewFormTemplateId,
+    `${request.fullName} // Internal Feedback Form // ${request.reviewDate.slice(0, 7)}`,
+    folder,
+    request.employeeEmail,
+    request.reviewerEmail
+  );
+  const clientForm = request.needsClientForm
+    ? await copyFormFromTemplate(
+        drive,
+        request.clientReviewFormTemplateId,
+        `${request.fullName} // Client Feedback Form // ${request.reviewDate.slice(0, 7)}`,
+        folder,
+        request.employeeEmail,
+        request.reviewerEmail
+      )
+    : undefined;
 
   return {
     ...folder,
-    report
+    report,
+    internalForm,
+    clientForm
   };
 }
 
@@ -273,6 +293,57 @@ async function copyReportFromTemplate(
     name: data.name,
     webViewLink: data.webViewLink
   };
+}
+
+async function copyFormFromTemplate(
+  drive: DriveResource,
+  templateId: string,
+  formName: string,
+  folder: CreatedDriveFile,
+  employeeEmail: string,
+  reviewerEmail: string
+): Promise<CreatedDriveFile> {
+  const { data } = await drive.files.copy({
+    fileId: templateId,
+    requestBody: {
+      name: formName,
+      parents: [folder.id]
+    },
+    fields: "id,name,webViewLink",
+    supportsAllDrives: true
+  });
+
+  if (!data.id || !data.name || !data.webViewLink) {
+    throw new Error("Google Drive did not return copied form metadata");
+  }
+
+  if (normalizeEmail(employeeEmail) !== normalizeEmail(reviewerEmail)) {
+    await grantEmployeeWriterAccess(drive, data.id, employeeEmail);
+  }
+
+  return {
+    id: data.id,
+    name: data.name,
+    webViewLink: data.webViewLink
+  };
+}
+
+async function grantEmployeeWriterAccess(
+  drive: DriveResource,
+  fileId: string,
+  employeeEmail: string
+): Promise<void> {
+  await drive.permissions?.create({
+    fileId,
+    requestBody: {
+      type: "user",
+      role: "writer",
+      emailAddress: employeeEmail
+    },
+    fields: "id",
+    supportsAllDrives: true,
+    sendNotificationEmail: false
+  });
 }
 
 function replaceText(text: string, replaceTextValue: string) {

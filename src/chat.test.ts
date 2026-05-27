@@ -12,6 +12,8 @@ const config: AppConfig = {
   googleRedirectUri: "https://example.test/auth/google/callback",
   reviewsRootFolderId: "root-folder-id",
   reviewReportTemplateId: "report-template-id",
+  internalReviewFormTemplateId: "internal-form-template-id",
+  clientReviewFormTemplateId: "client-form-template-id",
   employeeEmailDomains: ["fuse8.online", "byteminds.co.uk"],
   storageDriver: "local",
   localStoragePath: ".data/storage.json",
@@ -70,7 +72,8 @@ test("/review submit creates a test folder and returns its link", async () => {
         employeeEmail: "iaroslav.zaiarnyi@byteminds.co.uk",
         reviewerEmail: "reviewer@example.test",
         reviewDate: "2026-06-15",
-        reviewMonth: "2026.06"
+        reviewMonth: "2026.06",
+        needsClientForm: true
       });
       return {
         id: "folder-id",
@@ -80,6 +83,16 @@ test("/review submit creates a test folder and returns its link", async () => {
           id: "report-id",
           name: "Ivan Petrov // Отчёт Performance Review // 2026-06",
           webViewLink: "https://docs.google.com/document/report-id"
+        },
+        internalForm: {
+          id: "internal-form-id",
+          name: "Ivan Petrov // Internal Feedback Form // 2026-06",
+          webViewLink: "https://docs.google.com/forms/internal-form-id"
+        },
+        clientForm: {
+          id: "client-form-id",
+          name: "Ivan Petrov // Client Feedback Form // 2026-06",
+          webViewLink: "https://docs.google.com/forms/client-form-id"
         }
       };
     },
@@ -95,7 +108,8 @@ test("/review submit creates a test folder and returns its link", async () => {
   assert.match(messageText, /Создана папка ревью: 2026\.06/);
   assert.match(messageText, /Ссылка: https:\/\/drive\.google\.com\/folder/);
   assert.match(messageText, /PR report: https:\/\/docs\.google\.com\/document\/report-id/);
-  assert.match(messageText, /Клиентская форма: нужна/);
+  assert.match(messageText, /Internal feedback form: https:\/\/docs\.google\.com\/forms\/internal-form-id/);
+  assert.match(messageText, /Client feedback form: https:\/\/docs\.google\.com\/forms\/client-form-id/);
   assert.equal(statusText, "Готово. Отчёт отправлен в чат.");
   assert.deepEqual(response.actionResponse, {
     type: "DIALOG",
@@ -210,6 +224,68 @@ test("/review submit asks to configure employee email domain when it is missing"
   assert.match(text, /Настройте EMPLOYEE_EMAIL_DOMAINS/);
 });
 
+test("/review submit includes only internal form link when client form is not needed", async () => {
+  const handleChatEvent = createChatEventHandler({
+    async createReviewFolder(_config, _refreshToken, request) {
+      assert.equal(request.needsClientForm, false);
+      return {
+        id: "folder-id",
+        name: "2026.06",
+        webViewLink: "https://drive.google.com/folder",
+        internalForm: {
+          id: "internal-form-id",
+          name: "Ivan Petrov // Internal Feedback Form // 2026-06",
+          webViewLink: "https://docs.google.com/forms/internal-form-id"
+        }
+      };
+    }
+  });
+
+  const response = await handleChatEvent(
+    config,
+    storage,
+    reviewSubmitEvent({ needsClientForm: false, commonEventObject: true })
+  );
+  const text = getResponseText(response);
+
+  assert.match(text, /Internal feedback form: https:\/\/docs\.google\.com\/forms\/internal-form-id/);
+  assert.doesNotMatch(text, /Client feedback form:/);
+});
+
+test("/review submit asks to configure internal form template when it is missing", async () => {
+  const handleChatEvent = createChatEventHandler({
+    async createReviewFolder() {
+      throw new Error("should not create folder");
+    }
+  });
+
+  const response = await handleChatEvent(
+    { ...config, internalReviewFormTemplateId: "" },
+    storage,
+    reviewSubmitEvent({ commonEventObject: true })
+  );
+  const text = getResponseText(response);
+
+  assert.match(text, /Настройте INTERNAL_REVIEW_FORM_TEMPLATE_ID/);
+});
+
+test("/review submit asks to configure client form template when checkbox is selected", async () => {
+  const handleChatEvent = createChatEventHandler({
+    async createReviewFolder() {
+      throw new Error("should not create folder");
+    }
+  });
+
+  const response = await handleChatEvent(
+    { ...config, clientReviewFormTemplateId: "" },
+    storage,
+    reviewSubmitEvent({ commonEventObject: true })
+  );
+  const text = getResponseText(response);
+
+  assert.match(text, /Настройте CLIENT_REVIEW_FORM_TEMPLATE_ID/);
+});
+
 test("/review submit asks to configure report template when it is missing", async () => {
   const handleChatEvent = createChatEventHandler({
     async createReviewFolder() {
@@ -270,8 +346,14 @@ test("/review submit returns user-facing text when Drive folder creation fails",
   assert.match(text, /Не удалось выполнить \/review/);
 });
 
-function reviewSubmitEvent(overrides: { employeeEmail?: string } = {}): ChatEvent {
-  return {
+function reviewSubmitEvent(
+  overrides: {
+    employeeEmail?: string;
+    needsClientForm?: boolean;
+    commonEventObject?: boolean;
+  } = {}
+): ChatEvent {
+  const event: ChatEvent = {
     user: {
       name: "users/123"
     },
@@ -304,12 +386,23 @@ function reviewSubmitEvent(overrides: { employeeEmail?: string } = {}): ChatEven
         },
         needsClientForm: {
           stringInputs: {
-            value: ["yes"]
+            value: overrides.needsClientForm === false ? [] : ["yes"]
           }
         }
       }
     }
   };
+
+  if (overrides.commonEventObject) {
+    event.commonEventObject = {
+      formInputs: event.common?.formInputs,
+      parameters: {
+        actionName: "submitReview"
+      }
+    };
+  }
+
+  return event;
 }
 
 function getResponseText(response: Record<string, unknown>): string {
