@@ -11,11 +11,10 @@ export type CreatedCalendarEvent = {
   id: string;
   summary: string;
   htmlLink: string;
-};
-
-export type CreatedReviewerReminderEvent = CreatedCalendarEvent & {
   startDateTime: string;
 };
+
+export type CreatedReviewerReminderEvent = CreatedCalendarEvent;
 
 export type CalendarEventRequest = {
   fullName: string;
@@ -119,7 +118,8 @@ export async function createCalendarEventInCalendar(
   return {
     id: data.id,
     summary: data.summary,
-    htmlLink: data.htmlLink
+    htmlLink: data.htmlLink,
+    startDateTime: start
   };
 }
 

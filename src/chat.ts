@@ -394,6 +394,7 @@ async function executeReviewCreation(
   });
 
   const successText = formatReviewSuccessMessage(
+    request.fullName,
     folder,
     request.needsClientForm,
     previousReviewUrl,
@@ -562,6 +563,7 @@ function formatReviewMonth(date: string): string {
 }
 
 function formatReviewSuccessMessage(
+  fullName: string,
   folder: CreatedFolder,
   needsClientForm: boolean,
   previousReviewUrl = "",
@@ -569,8 +571,8 @@ function formatReviewSuccessMessage(
   reminderEvents: CreatedReviewerReminderEvent[] = []
 ): string {
   return [
-    `Создана папка ревью: ${folder.name}`,
-    `Ссылка: ${folder.webViewLink}`,
+    `Готово: Performance Review для ${fullName}`,
+    `Папка ревью: ${folder.name} - ${folder.webViewLink}`,
     ...(folder.report?.webViewLink ? [`PR report: ${folder.report.webViewLink}`] : []),
     ...(previousReviewUrl ? [`Previous review: ${previousReviewUrl}`] : []),
     ...(folder.internalForm?.webViewLink
@@ -581,8 +583,7 @@ function formatReviewSuccessMessage(
       : []),
     ...(calendarEvent
       ? [
-        `Calendar event: ${calendarEvent.summary}`,
-        `Calendar link: ${calendarEvent.htmlLink}`
+        `Встреча: ${calendarEvent.summary} - ${calendarEvent.startDateTime} - ${calendarEvent.htmlLink}`
       ]
       : []),
     ...(reminderEvents.length

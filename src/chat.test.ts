@@ -63,7 +63,8 @@ function createHandler(overrides: Partial<{
       return {
         id: "calendar-event-id",
         summary: "Performance Review: Ivan Petrov",
-        htmlLink: "https://calendar.google.com/event?eid=calendar-event-id"
+        htmlLink: "https://calendar.google.com/event?eid=calendar-event-id",
+        startDateTime: "2026-06-15T14:30:00+05:00"
       };
     },
     async createReviewerReminderEvents() {
@@ -180,7 +181,8 @@ test("/review submit creates a test folder and returns its link", async () => {
       return {
         id: "calendar-event-id",
         summary: "Performance Review: Ivan Petrov",
-        htmlLink: "https://calendar.google.com/event?eid=calendar-event-id"
+        htmlLink: "https://calendar.google.com/event?eid=calendar-event-id",
+        startDateTime: "2026-06-15T14:30:00+05:00"
       };
     },
     async createReviewerReminderEvents(_config, refreshToken, request) {
@@ -227,14 +229,13 @@ test("/review submit creates a test folder and returns its link", async () => {
   const statusText = getResponseText(response);
   const messageText = sentMessages[0]?.text ?? "";
 
-  assert.match(messageText, /Создана папка ревью: 2026\.06/);
-  assert.match(messageText, /Ссылка: https:\/\/drive\.google\.com\/folder/);
+  assert.match(messageText, /Готово: Performance Review для Ivan Petrov/);
+  assert.match(messageText, /Папка ревью: 2026\.06 - https:\/\/drive\.google\.com\/folder/);
   assert.match(messageText, /PR report: https:\/\/docs\.google\.com\/document\/report-id/);
   assert.match(messageText, /Previous review: https:\/\/docs\.google\.com\/document\/previous-report-id/);
   assert.match(messageText, /Internal feedback form: https:\/\/docs\.google\.com\/forms\/internal-form-id/);
   assert.match(messageText, /Client feedback form: https:\/\/docs\.google\.com\/forms\/client-form-id/);
-  assert.match(messageText, /Calendar event: Performance Review: Ivan Petrov/);
-  assert.match(messageText, /Calendar link: https:\/\/calendar\.google\.com\/event\?eid=calendar-event-id/);
+  assert.match(messageText, /Встреча: Performance Review: Ivan Petrov - 2026-06-15T14:30:00\+05:00 - https:\/\/calendar\.google\.com\/event\?eid=calendar-event-id/);
   assert.match(messageText, /Reminders:/);
   assert.match(messageText, /Запустить сбор отзывов для PR Ivan Petrov - 2026-05-26T12:00:00\+05:00 - https:\/\/calendar\.google\.com\/event\?eid=collect-reminder-id/);
   assert.match(messageText, /Проверить отзывы для PR Ivan Petrov - 2026-06-04T12:00:00\+05:00 - https:\/\/calendar\.google\.com\/event\?eid=check-reminder-id/);
@@ -545,7 +546,7 @@ test("/review submit continues without previous review after confirmation", asyn
   );
   const text = getResponseText(response);
 
-  assert.match(text, /Создана папка ревью: 2026\.06/);
+  assert.match(text, /Папка ревью: 2026\.06 - https:\/\/drive\.google\.com\/folder/);
   assert.doesNotMatch(text, /Previous review:/);
 });
 

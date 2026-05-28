@@ -1,33 +1,44 @@
-# TODO: надёжная доставка результата /review в Google Chat
+# TODO: Auth и надёжная доставка результата /review в Google Chat
 
-## Проблема
+## Контекст
 
-Google Chat Add-on имеет HTTP-таймаут ~8–9 секунд для интерактивных событий.
-Drive-операции при создании папки ревью занимают ~8 секунд (6 последовательных
-API-вызовов). Сейчас результат возвращается синхронно через `addOnTextResponse`,
-что работает в большинстве случаев, но иногда обрывается по таймауту.
+Сейчас `/review` уже умеет создавать Drive/Calendar артефакты и формировать финальный отчёт. Но доставка результата в Google Chat ненадёжна:
 
-Дополнительно: `sendSubmitResultToChat` использует OAuth-токен ревьюера, у которого
-нет scope `chat.messages`, поэтому доставка через Chat API тоже не работает.
+- Google Chat Add-on имеет HTTP-таймаут примерно 8-9 секунд для интерактивных событий.
+- Drive/Calendar workflow может занимать дольше этого лимита.
+- Финальное сообщение иногда не появляется в чате.
+- `sendSubmitResultToChat` сейчас использует OAuth-токен ревьюера, но для отправки сообщений от имени бота нужен другой способ авторизации.
 
-## Правильное решение
+## Правильная модель авторизации
 
-### 1. Сервисный аккаунт для Chat API
+Нужна гибридная модель:
 
-Создать сервисный аккаунт в Google Cloud и использовать его credentials для
-отправки сообщений от имени бота, а не токен ревьюера.
+- **OAuth ревьюера оставить для Drive и Calendar.**
+  - Папки, документы, формы и встречи создаются в контексте ревьюера.
+  - Основная PR-встреча создаётся в календаре ревьюера.
+  - Не нужно давать сервисному аккаунту широкий доступ к Drive/Calendar.
+- **Service account использовать только для Google Chat delivery.**
+  - Финальное сообщение должен отправлять бот, а не пользователь.
+  - Не нужно добавлять ревьюеру лишние Chat scopes.
+  - Для Chat API нужен scope `https://www.googleapis.com/auth/chat.bot`.
+
+Не нужно переводить весь workflow на service account.
+
+## Проблема 1: доставка финального сообщения
+
+Текущая отправка через OAuth-токен ревьюера концептуально неправильная для Chat API. Нужен service account.
+
+Новая env-настройка:
 
 ```env
-# .env.local / .env
 GOOGLE_SERVICE_ACCOUNT_KEY_FILE=.data/service-account.json
 ```
 
-В `config.ts` добавить:
-```ts
-chatServiceAccountKeyFile?: string;
-```
+Ожидаемые изменения:
 
-В `google-chat.ts` заменить auth:
+- В `config.ts` добавить `chatServiceAccountKeyFile?: string`.
+- В `google-chat.ts` заменить auth на `GoogleAuth`:
+
 ```ts
 import { GoogleAuth } from "google-auth-library";
 
@@ -45,19 +56,14 @@ export async function sendChatMessage(
 }
 ```
 
-### 2. Асинхронный fire-and-forget
+- Убрать `refreshToken` из параметров `sendChatMessage`.
+- Обновить все вызовы и тестовые моки.
 
-После получения сервисного аккаунта:
+## Проблема 2: spaceName в Add-on событиях
 
-- В Add-on dialog submit (`isDialogSubmit && event.commonEventObject`) отвечать
-  немедленно: `addOnTextResponse("Создаю папку ревью, ссылка появится в этом чате...")`
-- Запускать `runDriveAndNotify(...)` в фоне (без `await`)
-- `runDriveAndNotify` после завершения вызывает `sendChatMessage` через сервисный аккаунт
+В некоторых Add-on событиях `spaceName` лежит не в `event.chat.space.name`, а в `event.chat.buttonClickedPayload.space.name`.
 
-### 3. spaceName для Send
-
-В Add-on событии `spaceName` находится в `event.chat.buttonClickedPayload.space.name`
-(не в `event.chat.space.name`). Нужно добавить в `types.ts`:
+Нужно обновить `types.ts`:
 
 ```ts
 buttonClickedPayload?: {
@@ -68,16 +74,74 @@ buttonClickedPayload?: {
 ```
 
 И в `sendSubmitResultToChat`:
+
 ```ts
 const spaceName =
   event.chat?.space?.name ?? event.chat?.buttonClickedPayload?.space?.name;
 ```
 
-## Что сделать
+Если `spaceName` не найден, отправку пропускать и логировать `submit.sendChatMessage.skipped`.
 
-1. Создать сервисный аккаунт в Google Cloud Console → скачать JSON-ключ
-2. Добавить `GOOGLE_SERVICE_ACCOUNT_KEY_FILE` в `.env.local` / Cloud Run
-3. Обновить `config.ts`, `google-chat.ts` (убрать `refreshToken` из параметров)
-4. Обновить `types.ts` (добавить `space` в `buttonClickedPayload`)
-5. Добавить `runDriveAndNotify` и async-форк в `handleReviewSubmit`
-6. Обновить тесты в `chat.test.ts` — мок `sendChatMessage` больше не принимает `refreshToken`
+## Проблема 3: старые или отозванные OAuth refresh tokens
+
+Drive/Calendar всё ещё используют OAuth ревьюера. Нужно корректно обрабатывать битые токены:
+
+- `Insufficient Permission` — refresh token живой, но был выдан до добавления нужного scope.
+- `invalid_grant` — пользователь отозвал доступ, но старый token остался в storage.
+
+Желаемое поведение:
+
+- ловить `invalid_grant` и `Insufficient Permission` при Drive/Calendar вызовах;
+- инвалидировать или удалить token из storage;
+- отправить пользователю OAuth-ссылку;
+- после повторного OAuth пользователь повторяет `/review`.
+
+Это отдельная задача после починки Chat delivery.
+
+## Диагностические логи
+
+Пока доставка в Chat отлаживается, полезно логировать финальный результат.
+
+Рекомендация:
+
+- local/dev: можно логировать полный `successText`;
+- prod: логировать только `spaceName`, длину текста, наличие основных ссылок и результат отправки.
+
+Пример prod-лога:
+
+```text
+[chat] ... submit.resultMessage {"spaceName":"spaces/AAA","textLength":1234,"hasCalendar":true,"remindersCount":3}
+```
+
+## Порядок реализации
+
+1. Добавить `GOOGLE_SERVICE_ACCOUNT_KEY_FILE` и `chatServiceAccountKeyFile`.
+2. Переделать `sendChatMessage` на service account + `chat.bot`.
+3. Убрать `refreshToken` из `sendChatMessage` и всех вызовов.
+4. Добавить fallback для `event.chat.buttonClickedPayload.space.name`.
+5. Добавить диагностический лог финального результата.
+6. Обновить тесты.
+7. Отдельным следующим шагом реализовать восстановление при `invalid_grant` и `Insufficient Permission`.
+
+## Test Plan
+
+- Chat-тест: `sendChatMessage` вызывается без `refreshToken`.
+- Chat-тест: `spaceName` берётся из `event.chat.space.name`.
+- Chat-тест: `spaceName` берётся из `event.chat.buttonClickedPayload.space.name`.
+- Chat-тест: при отсутствии `spaceName` отправка пропускается и workflow не падает.
+- Unit/chat-тесты для будущего OAuth recovery:
+  - `invalid_grant` приводит к auth-required response;
+  - `Insufficient Permission` приводит к auth-required response;
+  - token удаляется или инвалидируется.
+
+## Manual Check
+
+1. Создать service account в Google Cloud.
+2. Скачать JSON key.
+3. Указать `GOOGLE_SERVICE_ACCOUNT_KEY_FILE` локально или в Cloud Run.
+4. Проверить, что Google Chat API включён.
+5. Выполнить `/review`.
+6. Проверить:
+   - Drive/Calendar объекты созданы как раньше;
+   - финальное сообщение появилось в Google Chat;
+   - в логах есть `submit.sendChatMessage.success`.

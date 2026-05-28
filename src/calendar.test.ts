@@ -39,7 +39,8 @@ test("createCalendarEventInCalendar creates a 2.5h review meeting with links", a
   assert.deepEqual(event, {
     id: "event-id",
     summary: "Performance Review: Ivan Petrov",
-    htmlLink: "https://calendar.google.com/event?eid=event-id"
+    htmlLink: "https://calendar.google.com/event?eid=event-id",
+    startDateTime: "2026-06-15T14:30:00+05:00"
   });
   assert.deepEqual(insertedEvents, [
     {
