@@ -15,6 +15,10 @@ const config: AppConfig = {
   internalReviewFormTemplateId: "internal-form-template-id",
   clientReviewFormTemplateId: "client-form-template-id",
   employeeEmailDomains: ["fuse8.online", "byteminds.co.uk"],
+  taskCollectDaysBefore: 14,
+  taskCheckDaysBefore: 7,
+  taskPrepareDaysBefore: 3,
+  taskReminderTime: "12:00",
   storageDriver: "local",
   localStoragePath: ".data/storage.json",
   port: 8080
@@ -43,6 +47,7 @@ const storage: TokenStorage = {
 function createHandler(overrides: Partial<{
   createReviewFolder: ChatEventHandlerDeps["createReviewFolder"];
   createCalendarEvent: ChatEventHandlerDeps["createCalendarEvent"];
+  createReviewerReminderEvents: ChatEventHandlerDeps["createReviewerReminderEvents"];
   findPreviousReviewReport: ChatEventHandlerDeps["findPreviousReviewReport"];
   sendChatMessage: ChatEventHandlerDeps["sendChatMessage"];
 }> = {}) {
@@ -61,6 +66,28 @@ function createHandler(overrides: Partial<{
         htmlLink: "https://calendar.google.com/event?eid=calendar-event-id"
       };
     },
+    async createReviewerReminderEvents() {
+      return [
+        {
+          id: "collect-reminder-id",
+          summary: "Запустить сбор отзывов для PR Ivan Petrov",
+          htmlLink: "https://calendar.google.com/event?eid=collect-reminder-id",
+          startDateTime: "2026-05-26T12:00:00+05:00"
+        },
+        {
+          id: "check-reminder-id",
+          summary: "Проверить отзывы для PR Ivan Petrov",
+          htmlLink: "https://calendar.google.com/event?eid=check-reminder-id",
+          startDateTime: "2026-06-04T12:00:00+05:00"
+        },
+        {
+          id: "prepare-reminder-id",
+          summary: "Подготовиться к проведению PR Ivan Petrov",
+          htmlLink: "https://calendar.google.com/event?eid=prepare-reminder-id",
+          startDateTime: "2026-06-10T12:00:00+05:00"
+        }
+      ];
+    },
     ...overrides
   });
 }
@@ -68,6 +95,7 @@ function createHandler(overrides: Partial<{
 type ChatEventHandlerDeps = {
   createReviewFolder: typeof import("./drive.js").createReviewFolder;
   createCalendarEvent: typeof import("./calendar.js").createCalendarEvent;
+  createReviewerReminderEvents: typeof import("./calendar.js").createReviewerReminderEvents;
   findPreviousReviewReport: typeof import("./drive.js").findPreviousReviewReport;
   buildAuthUrl: typeof import("./oauth.js").buildAuthUrl;
   sendChatMessage: typeof import("./google-chat.js").sendChatMessage;
@@ -155,6 +183,41 @@ test("/review submit creates a test folder and returns its link", async () => {
         htmlLink: "https://calendar.google.com/event?eid=calendar-event-id"
       };
     },
+    async createReviewerReminderEvents(_config, refreshToken, request) {
+      assert.equal(refreshToken, "refresh-token");
+      assert.deepEqual(request, {
+        fullName: "Ivan Petrov",
+        employeeEmail: "iaroslav.zaiarnyi@byteminds.co.uk",
+        reviewerEmail: "reviewer@example.test",
+        reviewDate: "2026-06-15",
+        meetingTime: "14:30",
+        folderUrl: "https://drive.google.com/folder",
+        reportUrl: "https://docs.google.com/document/report-id",
+        internalFormUrl: "https://docs.google.com/forms/internal-form-id",
+        clientFormUrl: "https://docs.google.com/forms/client-form-id",
+        previousReviewUrl: "https://docs.google.com/document/previous-report-id"
+      });
+      return [
+        {
+          id: "collect-reminder-id",
+          summary: "Запустить сбор отзывов для PR Ivan Petrov",
+          htmlLink: "https://calendar.google.com/event?eid=collect-reminder-id",
+          startDateTime: "2026-05-26T12:00:00+05:00"
+        },
+        {
+          id: "check-reminder-id",
+          summary: "Проверить отзывы для PR Ivan Petrov",
+          htmlLink: "https://calendar.google.com/event?eid=check-reminder-id",
+          startDateTime: "2026-06-04T12:00:00+05:00"
+        },
+        {
+          id: "prepare-reminder-id",
+          summary: "Подготовиться к проведению PR Ivan Petrov",
+          htmlLink: "https://calendar.google.com/event?eid=prepare-reminder-id",
+          startDateTime: "2026-06-10T12:00:00+05:00"
+        }
+      ];
+    },
     async sendChatMessage(_config, refreshToken, spaceName, text) {
       sentMessages.push({ refreshToken, spaceName, text });
     }
@@ -172,6 +235,10 @@ test("/review submit creates a test folder and returns its link", async () => {
   assert.match(messageText, /Client feedback form: https:\/\/docs\.google\.com\/forms\/client-form-id/);
   assert.match(messageText, /Calendar event: Performance Review: Ivan Petrov/);
   assert.match(messageText, /Calendar link: https:\/\/calendar\.google\.com\/event\?eid=calendar-event-id/);
+  assert.match(messageText, /Reminders:/);
+  assert.match(messageText, /Запустить сбор отзывов для PR Ivan Petrov - 2026-05-26T12:00:00\+05:00 - https:\/\/calendar\.google\.com\/event\?eid=collect-reminder-id/);
+  assert.match(messageText, /Проверить отзывы для PR Ivan Petrov - 2026-06-04T12:00:00\+05:00 - https:\/\/calendar\.google\.com\/event\?eid=check-reminder-id/);
+  assert.match(messageText, /Подготовиться к проведению PR Ivan Petrov - 2026-06-10T12:00:00\+05:00 - https:\/\/calendar\.google\.com\/event\?eid=prepare-reminder-id/);
   assert.equal(statusText, "Готово. Отчёт отправлен в чат.");
   assert.deepEqual(response.actionResponse, {
     type: "DIALOG",

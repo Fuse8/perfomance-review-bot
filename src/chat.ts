@@ -1,6 +1,8 @@
 import type { AppConfig } from "./config.js";
 import {
   createCalendarEvent,
+  createReviewerReminderEvents,
+  type CreatedReviewerReminderEvent,
   type CreatedCalendarEvent
 } from "./calendar.js";
 import {
@@ -21,6 +23,7 @@ const HEALTH_COMMAND_ID = 2;
 type ChatEventHandlerDeps = {
   createReviewFolder: typeof createReviewFolder;
   createCalendarEvent: typeof createCalendarEvent;
+  createReviewerReminderEvents: typeof createReviewerReminderEvents;
   findPreviousReviewReport: typeof findPreviousReviewReport;
   buildAuthUrl: typeof buildAuthUrl;
   sendChatMessage: typeof sendChatMessage;
@@ -29,6 +32,7 @@ type ChatEventHandlerDeps = {
 const defaultDeps: ChatEventHandlerDeps = {
   createReviewFolder,
   createCalendarEvent,
+  createReviewerReminderEvents,
   findPreviousReviewReport,
   buildAuthUrl,
   sendChatMessage
@@ -313,19 +317,20 @@ async function executeReviewCreation(
   });
 
   let calendarEvent: CreatedCalendarEvent;
+  const calendarRequest = {
+    fullName: request.fullName,
+    employeeEmail: request.employeeEmail,
+    reviewerEmail,
+    reviewDate: request.reviewDate,
+    meetingTime: request.meetingTime,
+    folderUrl: folder.webViewLink,
+    reportUrl: folder.report?.webViewLink,
+    internalFormUrl: folder.internalForm?.webViewLink,
+    clientFormUrl: folder.clientForm?.webViewLink,
+    previousReviewUrl
+  };
   try {
-    calendarEvent = await deps.createCalendarEvent(config, refreshToken, {
-      fullName: request.fullName,
-      employeeEmail: request.employeeEmail,
-      reviewerEmail,
-      reviewDate: request.reviewDate,
-      meetingTime: request.meetingTime,
-      folderUrl: folder.webViewLink,
-      reportUrl: folder.report?.webViewLink,
-      internalFormUrl: folder.internalForm?.webViewLink,
-      clientFormUrl: folder.clientForm?.webViewLink,
-      previousReviewUrl
-    });
+    calendarEvent = await deps.createCalendarEvent(config, refreshToken, calendarRequest);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     logChatEvent("submit.createCalendarEvent.failed", { message });
@@ -356,11 +361,44 @@ async function executeReviewCreation(
     hasLink: Boolean(calendarEvent.htmlLink)
   });
 
+  let reminderEvents: CreatedReviewerReminderEvent[];
+  try {
+    reminderEvents = await deps.createReviewerReminderEvents(config, refreshToken, calendarRequest);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    logChatEvent("submit.createReviewerReminderEvents.failed", { message });
+    const errorText = [
+      "Не удалось создать reminder'ы ревьюера.",
+      `Ошибка Google Calendar: ${message}`
+    ].join("\n");
+
+    if (isDialogSubmit) {
+      if (event.commonEventObject) {
+        return addOnTextResponse(errorText);
+      }
+      void sendSubmitResultToChat(config, deps, refreshToken, event, errorText);
+      return dialogActionStatusResponse(
+        "Не удалось выполнить /review. Ошибка отправлена в чат.",
+        "INVALID_ARGUMENT"
+      );
+    }
+
+    if (isAddOnEvent) {
+      return addOnTextResponse(errorText);
+    }
+
+    return actionResponseText(errorText);
+  }
+  logChatEvent("submit.createReviewerReminderEvents.success", {
+    count: reminderEvents.length
+  });
+
   const successText = formatReviewSuccessMessage(
     folder,
     request.needsClientForm,
     previousReviewUrl,
-    calendarEvent
+    calendarEvent,
+    reminderEvents
   );
 
   if (isDialogSubmit) {
@@ -527,7 +565,8 @@ function formatReviewSuccessMessage(
   folder: CreatedFolder,
   needsClientForm: boolean,
   previousReviewUrl = "",
-  calendarEvent?: CreatedCalendarEvent
+  calendarEvent?: CreatedCalendarEvent,
+  reminderEvents: CreatedReviewerReminderEvent[] = []
 ): string {
   return [
     `Создана папка ревью: ${folder.name}`,
@@ -544,6 +583,12 @@ function formatReviewSuccessMessage(
       ? [
         `Calendar event: ${calendarEvent.summary}`,
         `Calendar link: ${calendarEvent.htmlLink}`
+      ]
+      : []),
+    ...(reminderEvents.length
+      ? [
+        "Reminders:",
+        ...reminderEvents.map((event) => `${event.summary} - ${event.startDateTime} - ${event.htmlLink}`)
       ]
       : [])
   ].join("\n");

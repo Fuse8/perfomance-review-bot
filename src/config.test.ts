@@ -41,3 +41,28 @@ test("loadConfig parses comma-separated employee email domains", () => {
     process.env = previousEnv;
   }
 });
+
+test("loadConfig uses default reviewer task reminder settings", () => {
+  const previousEnv = { ...process.env };
+
+  try {
+    process.env.APP_BASE_URL = "https://example.test";
+    process.env.GOOGLE_CLIENT_ID = "client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "client-secret";
+    process.env.GOOGLE_REDIRECT_URI = "https://example.test/auth/google/callback";
+    process.env.REVIEWS_ROOT_FOLDER_ID = "root-folder-id";
+    delete process.env.TASK_COLLECT_DAYS_BEFORE;
+    delete process.env.TASK_CHECK_DAYS_BEFORE;
+    delete process.env.TASK_PREPARE_DAYS_BEFORE;
+    delete process.env.TASK_REMINDER_TIME;
+
+    const config = loadConfig();
+
+    assert.equal(config.taskCollectDaysBefore, 14);
+    assert.equal(config.taskCheckDaysBefore, 7);
+    assert.equal(config.taskPrepareDaysBefore, 3);
+    assert.equal(config.taskReminderTime, "12:00");
+  } finally {
+    process.env = previousEnv;
+  }
+});

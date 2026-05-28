@@ -8,6 +8,10 @@ export type AppConfig = {
   internalReviewFormTemplateId: string;
   clientReviewFormTemplateId: string;
   employeeEmailDomains: string[];
+  taskCollectDaysBefore: number;
+  taskCheckDaysBefore: number;
+  taskPrepareDaysBefore: number;
+  taskReminderTime: string;
   storageDriver: "firestore" | "local";
   localStoragePath: string;
   port: number;
@@ -36,6 +40,10 @@ export function loadConfig(): AppConfig {
     employeeEmailDomains: normalizeOptionalDomains(
       process.env.EMPLOYEE_EMAIL_DOMAINS
     ),
+    taskCollectDaysBefore: Number(process.env.TASK_COLLECT_DAYS_BEFORE ?? 14),
+    taskCheckDaysBefore: Number(process.env.TASK_CHECK_DAYS_BEFORE ?? 7),
+    taskPrepareDaysBefore: Number(process.env.TASK_PREPARE_DAYS_BEFORE ?? 3),
+    taskReminderTime: process.env.TASK_REMINDER_TIME ?? "12:00",
     storageDriver,
     localStoragePath: process.env.LOCAL_STORAGE_PATH ?? ".data/storage.json",
     port: Number(process.env.PORT ?? 8080)
