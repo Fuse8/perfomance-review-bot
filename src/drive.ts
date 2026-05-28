@@ -24,6 +24,7 @@ export type ReviewFolderRequest = {
   reviewDate: string;
   reviewMonth: string;
   needsClientForm: boolean;
+  previousReviewUrl?: string;
 };
 
 type DriveFilesResource = {
@@ -47,6 +48,7 @@ type DriveFilesResource = {
       files?: Array<{
         id?: string | null;
         name?: string | null;
+        webViewLink?: string | null;
       }>;
     };
   }>;
@@ -117,6 +119,85 @@ type DriveResource = {
   };
 };
 
+export async function findPreviousReviewReport(
+  config: AppConfig,
+  refreshToken: string,
+  fullName: string,
+  reviewMonth: string
+): Promise<CreatedDriveFile | null> {
+  const auth = createOAuthClient(config);
+  auth.setCredentials({ refresh_token: refreshToken });
+
+  const drive = google.drive({ version: "v3", auth });
+
+  return findPreviousReviewReportInDrive(drive, config.reviewsRootFolderId, fullName, reviewMonth);
+}
+
+export async function findPreviousReviewReportInDrive(
+  drive: DriveResource,
+  rootFolderId: string,
+  fullName: string,
+  reviewMonth: string
+): Promise<CreatedDriveFile | null> {
+  const employeeFolder = await findEmployeeFolder(drive.files, rootFolderId, fullName);
+  if (!employeeFolder?.id) {
+    throw new Error(`Папка сотрудника не найдена: ${fullName}`);
+  }
+
+  const escapedEmployeeFolderId = escapeDriveQueryValue(employeeFolder.id);
+  const { data } = await drive.files.list({
+    q: `'${escapedEmployeeFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+    fields: "files(id,name)",
+    pageSize: 100,
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true
+  });
+
+  const monthFolders = (data.files ?? [])
+    .filter((file) => file.id && file.name && isReviewMonthFolderName(file.name))
+    .filter((file) => file.name! < reviewMonth)
+    .sort((left, right) => right.name!.localeCompare(left.name!));
+
+  const reportNamePrefix = buildReportNamePrefix(fullName);
+
+  for (const monthFolder of monthFolders) {
+    const escapedMonthFolderId = escapeDriveQueryValue(monthFolder.id!);
+    const { data: reportList } = await drive.files.list({
+      q: `'${escapedMonthFolderId}' in parents and mimeType = 'application/vnd.google-apps.document' and trashed = false`,
+      fields: "files(id,name,webViewLink)",
+      pageSize: 100,
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true
+    });
+
+    const report = (reportList.files ?? []).find(
+      (file) =>
+        file.id &&
+        file.name &&
+        file.webViewLink &&
+        file.name.startsWith(reportNamePrefix)
+    );
+
+    if (report?.id && report.name && report.webViewLink) {
+      return {
+        id: report.id,
+        name: report.name,
+        webViewLink: report.webViewLink
+      };
+    }
+  }
+
+  return null;
+}
+
+export function buildReportNamePrefix(fullName: string): string {
+  return `${fullName} // Отчёт Performance Review // `;
+}
+
+export function isReviewMonthFolderName(name: string): boolean {
+  return /^\d{4}\.\d{2}$/.test(name);
+}
+
 export async function createReviewFolder(
   config: AppConfig,
   refreshToken: string,
@@ -186,7 +267,12 @@ export async function createReviewFolderInDrive(
     webViewLink: data.webViewLink
   };
 
-  const report = await copyReportFromTemplate(drive, request, folder);
+  const report = await copyReportFromTemplate(
+    drive,
+    request,
+    folder,
+    request.previousReviewUrl ?? ""
+  );
   const internalForm = await copyFormFromTemplate(
     drive,
     request.internalReviewFormTemplateId,
@@ -258,9 +344,10 @@ function normalizeEmail(value: string): string {
 async function copyReportFromTemplate(
   drive: DriveResource,
   request: ReviewFolderRequest & { reviewReportTemplateId: string },
-  folder: CreatedDriveFile
+  folder: CreatedDriveFile,
+  previousReviewUrl: string
 ): Promise<CreatedDriveFile> {
-  const reportName = `${request.fullName} // Отчёт Performance Review // ${request.reviewDate.slice(0, 7)}`;
+  const reportName = `${buildReportNamePrefix(request.fullName)}${request.reviewDate.slice(0, 7)}`;
   const { data } = await drive.files.copy({
     fileId: request.reviewReportTemplateId,
     requestBody: {
@@ -283,7 +370,7 @@ async function copyReportFromTemplate(
         replaceText("{{REVIEW_DATE}}", request.reviewDate),
         replaceText("{{REVIEWER_EMAIL}}", request.reviewerEmail),
         replaceText("{{REVIEW_FOLDER_URL}}", folder.webViewLink),
-        replaceText("{{PREVIOUS_REVIEW_URL}}", "")
+        replaceText("{{PREVIOUS_REVIEW_URL}}", previousReviewUrl)
       ]
     }
   });

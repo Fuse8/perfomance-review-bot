@@ -33,7 +33,35 @@ const storage: TokenStorage = {
   async saveOAuthState() {},
   async consumeOAuthState() {
     return null;
+  },
+  async savePendingReview() {},
+  async consumePendingReview() {
+    return null;
   }
+};
+
+function createHandler(overrides: Partial<{
+  createReviewFolder: ChatEventHandlerDeps["createReviewFolder"];
+  findPreviousReviewReport: ChatEventHandlerDeps["findPreviousReviewReport"];
+  sendChatMessage: ChatEventHandlerDeps["sendChatMessage"];
+}> = {}) {
+  return createChatEventHandler({
+    async findPreviousReviewReport() {
+      return {
+        id: "previous-report-id",
+        name: "Ivan Petrov // Отчёт Performance Review // 2026-05",
+        webViewLink: "https://docs.google.com/document/previous-report-id"
+      };
+    },
+    ...overrides
+  });
+}
+
+type ChatEventHandlerDeps = {
+  createReviewFolder: typeof import("./drive.js").createReviewFolder;
+  findPreviousReviewReport: typeof import("./drive.js").findPreviousReviewReport;
+  buildAuthUrl: typeof import("./oauth.js").buildAuthUrl;
+  sendChatMessage: typeof import("./google-chat.js").sendChatMessage;
 };
 
 test("/check returns smoke-test response", async () => {
@@ -64,7 +92,7 @@ test("/check returns smoke-test response", async () => {
 
 test("/review submit creates a test folder and returns its link", async () => {
   const sentMessages: Array<{ refreshToken: string; spaceName: string; text: string }> = [];
-  const handleChatEvent = createChatEventHandler({
+  const handleChatEvent = createHandler({
     async createReviewFolder(_config, refreshToken, request) {
       assert.equal(refreshToken, "refresh-token");
       assert.deepEqual(request, {
@@ -73,7 +101,8 @@ test("/review submit creates a test folder and returns its link", async () => {
         reviewerEmail: "reviewer@example.test",
         reviewDate: "2026-06-15",
         reviewMonth: "2026.06",
-        needsClientForm: true
+        needsClientForm: true,
+        previousReviewUrl: "https://docs.google.com/document/previous-report-id"
       });
       return {
         id: "folder-id",
@@ -108,6 +137,7 @@ test("/review submit creates a test folder and returns its link", async () => {
   assert.match(messageText, /Создана папка ревью: 2026\.06/);
   assert.match(messageText, /Ссылка: https:\/\/drive\.google\.com\/folder/);
   assert.match(messageText, /PR report: https:\/\/docs\.google\.com\/document\/report-id/);
+  assert.match(messageText, /Previous review: https:\/\/docs\.google\.com\/document\/previous-report-id/);
   assert.match(messageText, /Internal feedback form: https:\/\/docs\.google\.com\/forms\/internal-form-id/);
   assert.match(messageText, /Client feedback form: https:\/\/docs\.google\.com\/forms\/client-form-id/);
   assert.equal(statusText, "Готово. Отчёт отправлен в чат.");
@@ -133,7 +163,7 @@ test("/review submit does not wait for Chat API message delivery", async () => {
   let resolveSend!: () => void;
   let responsePromise!: Promise<Record<string, unknown>>;
   const sendStarted = new Promise<void>((resolve) => {
-    const handleChatEvent = createChatEventHandler({
+    const handleChatEvent = createHandler({
       async createReviewFolder() {
         return {
           id: "folder-id",
@@ -167,7 +197,7 @@ test("/review submit does not wait for Chat API message delivery", async () => {
 });
 
 test("/review submit validates employee email domain", async () => {
-  const handleChatEvent = createChatEventHandler({
+  const handleChatEvent = createHandler({
     async createReviewFolder() {
       throw new Error("should not create folder");
     }
@@ -185,7 +215,7 @@ test("/review submit validates employee email domain", async () => {
 
 test("/review submit accepts employee email from any configured domain", async () => {
   const acceptedEmails: string[] = [];
-  const handleChatEvent = createChatEventHandler({
+  const handleChatEvent = createHandler({
     async createReviewFolder(_config, _refreshToken, request) {
       acceptedEmails.push(request.employeeEmail);
       return {
@@ -208,7 +238,7 @@ test("/review submit accepts employee email from any configured domain", async (
 });
 
 test("/review submit asks to configure employee email domain when it is missing", async () => {
-  const handleChatEvent = createChatEventHandler({
+  const handleChatEvent = createHandler({
     async createReviewFolder() {
       throw new Error("should not create folder");
     }
@@ -225,7 +255,7 @@ test("/review submit asks to configure employee email domain when it is missing"
 });
 
 test("/review submit includes only internal form link when client form is not needed", async () => {
-  const handleChatEvent = createChatEventHandler({
+  const handleChatEvent = createHandler({
     async createReviewFolder(_config, _refreshToken, request) {
       assert.equal(request.needsClientForm, false);
       return {
@@ -253,7 +283,7 @@ test("/review submit includes only internal form link when client form is not ne
 });
 
 test("/review submit asks to configure internal form template when it is missing", async () => {
-  const handleChatEvent = createChatEventHandler({
+  const handleChatEvent = createHandler({
     async createReviewFolder() {
       throw new Error("should not create folder");
     }
@@ -270,7 +300,7 @@ test("/review submit asks to configure internal form template when it is missing
 });
 
 test("/review submit asks to configure client form template when checkbox is selected", async () => {
-  const handleChatEvent = createChatEventHandler({
+  const handleChatEvent = createHandler({
     async createReviewFolder() {
       throw new Error("should not create folder");
     }
@@ -287,7 +317,7 @@ test("/review submit asks to configure client form template when checkbox is sel
 });
 
 test("/review submit asks to configure report template when it is missing", async () => {
-  const handleChatEvent = createChatEventHandler({
+  const handleChatEvent = createHandler({
     async createReviewFolder() {
       throw new Error("should not create folder");
     }
@@ -305,9 +335,12 @@ test("/review submit asks to configure report template when it is missing", asyn
 
 test("/review submit returns clear text when employee folder is missing", async () => {
   const sentMessages: string[] = [];
-  const handleChatEvent = createChatEventHandler({
-    async createReviewFolder() {
+  const handleChatEvent = createHandler({
+    async findPreviousReviewReport() {
       throw new Error("Папка сотрудника не найдена: Ivan Petrov");
+    },
+    async createReviewFolder() {
+      throw new Error("should not create folder");
     },
     async sendChatMessage(_config, _refreshToken, _spaceName, text) {
       sentMessages.push(text);
@@ -317,22 +350,90 @@ test("/review submit returns clear text when employee folder is missing", async 
   const response = await handleChatEvent(config, storage, reviewSubmitEvent());
   const statusText = getResponseText(response);
 
-  assert.equal(statusText, "Не удалось выполнить /review. Ошибка отправлена в чат.");
-  assert.deepEqual(response.actionResponse, {
-    type: "DIALOG",
-    dialogAction: {
-      actionStatus: {
-        statusCode: "INVALID_ARGUMENT",
-        userFacingMessage: "Не удалось выполнить /review. Ошибка отправлена в чат."
-      }
+  assert.match(statusText, /Не удалось найти предыдущее ревью/);
+  assert.match(statusText, /Папка сотрудника не найдена: Ivan Petrov/);
+  assert.equal(sentMessages.length, 0);
+});
+
+test("/review submit asks to confirm when previous review is missing", async () => {
+  const savedPending: Array<Record<string, unknown>> = [];
+  const pendingStorage: TokenStorage = {
+    ...storage,
+    async savePendingReview(request) {
+      savedPending.push(request);
+    }
+  };
+  const handleChatEvent = createHandler({
+    async findPreviousReviewReport() {
+      return null;
+    },
+    async createReviewFolder() {
+      throw new Error("should not create folder");
     }
   });
-  assert.equal(sentMessages.length, 1);
-  assert.match(sentMessages[0], /Папка сотрудника не найдена: Ivan Petrov/);
+
+  const response = await handleChatEvent(
+    config,
+    pendingStorage,
+    reviewSubmitEvent({ commonEventObject: true })
+  );
+
+  assert.equal(savedPending.length, 1);
+  assert.equal(savedPending[0]?.fullName, "Ivan Petrov");
+  assert.equal(savedPending[0]?.reviewMonth, "2026.06");
+  const action = response.action as {
+    navigations?: Array<{ pushCard?: { header?: { title?: string } } }>;
+  };
+  assert.deepEqual(action.navigations?.[0]?.pushCard?.header, {
+    title: "Предыдущее ревью не найдено"
+  });
+});
+
+test("/review submit continues without previous review after confirmation", async () => {
+  const pendingStorage: TokenStorage = {
+    ...storage,
+    async savePendingReview() {},
+    async consumePendingReview() {
+      return {
+        chatUserId: "users/123",
+        reviewMonth: "2026.06",
+        createdAt: "2026-05-27T00:00:00.000Z",
+        fullName: "Ivan Petrov",
+        employeeEmail: "iaroslav.zaiarnyi@byteminds.co.uk",
+        reviewDate: "2026-06-15",
+        needsClientForm: true
+      };
+    }
+  };
+  const handleChatEvent = createHandler({
+    async createReviewFolder(_config, _refreshToken, request) {
+      assert.equal(request.previousReviewUrl, "");
+      return {
+        id: "folder-id",
+        name: "2026.06",
+        webViewLink: "https://drive.google.com/folder",
+        report: {
+          id: "report-id",
+          name: "Ivan Petrov // Отчёт Performance Review // 2026-06",
+          webViewLink: "https://docs.google.com/document/report-id"
+        }
+      };
+    }
+  });
+
+  const response = await handleChatEvent(
+    config,
+    pendingStorage,
+    confirmWithoutPreviousEvent({ commonEventObject: true })
+  );
+  const text = getResponseText(response);
+
+  assert.match(text, /Создана папка ревью: 2026\.06/);
+  assert.doesNotMatch(text, /Previous review:/);
 });
 
 test("/review submit returns user-facing text when Drive folder creation fails", async () => {
-  const handleChatEvent = createChatEventHandler({
+  const handleChatEvent = createHandler({
     async createReviewFolder() {
       throw new Error("Drive API has not been used in project");
     },
@@ -345,6 +446,36 @@ test("/review submit returns user-facing text when Drive folder creation fails",
 
   assert.match(text, /Не удалось выполнить \/review/);
 });
+
+function confirmWithoutPreviousEvent(
+  overrides: { commonEventObject?: boolean } = {}
+): ChatEvent {
+  const event: ChatEvent = {
+    user: {
+      name: "users/123"
+    },
+    chat: {
+      buttonClickedPayload: {
+        isDialogEvent: true,
+        dialogEventType: "SUBMIT_DIALOG"
+      }
+    },
+    commonEventObject: {
+      parameters: {
+        actionName: "confirmReviewWithoutPrevious"
+      }
+    }
+  };
+
+  if (!overrides.commonEventObject) {
+    delete event.commonEventObject;
+    event.common = {
+      invokedFunction: "confirmReviewWithoutPrevious"
+    };
+  }
+
+  return event;
+}
 
 function reviewSubmitEvent(
   overrides: {

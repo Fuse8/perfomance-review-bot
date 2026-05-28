@@ -19,6 +19,12 @@ export type ReviewRequest = {
   needsClientForm: boolean;
 };
 
+export type PendingReviewRequest = ReviewRequest & {
+  chatUserId: string;
+  reviewMonth: string;
+  createdAt: string;
+};
+
 export type ChatEvent = {
   type?: string;
   commonEventObject?: {

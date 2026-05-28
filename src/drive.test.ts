@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createReviewFolderInDrive, normalizePersonName } from "./drive.js";
+import {
+  createReviewFolderInDrive,
+  findPreviousReviewReportInDrive,
+  isReviewMonthFolderName,
+  normalizePersonName
+} from "./drive.js";
+
+test("isReviewMonthFolderName matches YYYY.MM folders", () => {
+  assert.equal(isReviewMonthFolderName("2026.06"), true);
+  assert.equal(isReviewMonthFolderName("2026-06"), false);
+});
 
 test("normalizePersonName trims, lowercases and collapses spaces", () => {
   assert.equal(normalizePersonName("  Ivan   PETROV  "), "ivan petrov");
@@ -110,7 +120,8 @@ test("createReviewFolderInDrive creates review month folder inside matched emplo
     reviewerEmail: "reviewer@example.test",
     reviewDate: "2026-06-15",
     reviewMonth: "2026.06",
-    needsClientForm: true
+    needsClientForm: true,
+    previousReviewUrl: "https://docs.google.com/document/previous-report"
   });
 
   assert.equal(folder.name, "2026.06");
@@ -140,7 +151,7 @@ test("createReviewFolderInDrive creates review month folder inside matched emplo
     { containsText: "{{REVIEW_DATE}}", replaceText: "2026-06-15" },
     { containsText: "{{REVIEWER_EMAIL}}", replaceText: "reviewer@example.test" },
     { containsText: "{{REVIEW_FOLDER_URL}}", replaceText: "https://drive.google.com/month-folder" },
-    { containsText: "{{PREVIOUS_REVIEW_URL}}", replaceText: "" }
+    { containsText: "{{PREVIOUS_REVIEW_URL}}", replaceText: "https://docs.google.com/document/previous-report" }
   ]);
   assert.deepEqual(permissions, [
     {
@@ -301,6 +312,112 @@ test("createReviewFolderInDrive fails when employee folder is missing", async ()
       }),
     /Папка сотрудника не найдена: Ivan Petrov/
   );
+});
+
+test("findPreviousReviewReportInDrive returns the newest previous report", async () => {
+  const listCalls: string[] = [];
+  const files = {
+    async list(params: { q?: string; fields?: string }) {
+      listCalls.push(params.q ?? "");
+
+      if (params.q?.includes("root-folder-id")) {
+        return {
+          data: {
+            files: [{ id: "employee-folder-id", name: "Ivan Petrov" }]
+          }
+        };
+      }
+
+      if (params.q?.includes("employee-folder-id") && params.fields === "files(id,name)") {
+        return {
+          data: {
+            files: [
+              { id: "month-2026-04", name: "2026.04" },
+              { id: "month-2026-05", name: "2026.05" },
+              { id: "month-2026-06", name: "2026.06" }
+            ]
+          }
+        };
+      }
+
+      if (params.q?.includes("month-2026-05")) {
+        return {
+          data: {
+            files: [
+              {
+                id: "report-2026-05",
+                name: "Ivan Petrov // Отчёт Performance Review // 2026-05",
+                webViewLink: "https://docs.google.com/document/report-2026-05"
+              }
+            ]
+          }
+        };
+      }
+
+      if (params.q?.includes("month-2026-04")) {
+        return {
+          data: {
+            files: [
+              {
+                id: "report-2026-04",
+                name: "Ivan Petrov // Отчёт Performance Review // 2026-04",
+                webViewLink: "https://docs.google.com/document/report-2026-04"
+              }
+            ]
+          }
+        };
+      }
+
+      return { data: { files: [] } };
+    }
+  };
+
+  const previous = await findPreviousReviewReportInDrive(
+    { files: files as never },
+    "root-folder-id",
+    "Ivan Petrov",
+    "2026.06"
+  );
+
+  assert.deepEqual(previous, {
+    id: "report-2026-05",
+    name: "Ivan Petrov // Отчёт Performance Review // 2026-05",
+    webViewLink: "https://docs.google.com/document/report-2026-05"
+  });
+  assert.match(listCalls[2] ?? "", /month-2026-05/);
+});
+
+test("findPreviousReviewReportInDrive returns null when no previous report exists", async () => {
+  const files = {
+    async list(params: { q?: string; fields?: string }) {
+      if (params.q?.includes("root-folder-id")) {
+        return {
+          data: {
+            files: [{ id: "employee-folder-id", name: "Ivan Petrov" }]
+          }
+        };
+      }
+
+      if (params.q?.includes("employee-folder-id") && params.fields === "files(id,name)") {
+        return {
+          data: {
+            files: [{ id: "month-2026-06", name: "2026.06" }]
+          }
+        };
+      }
+
+      return { data: { files: [] } };
+    }
+  };
+
+  const previous = await findPreviousReviewReportInDrive(
+    { files: files as never },
+    "root-folder-id",
+    "Ivan Petrov",
+    "2026.06"
+  );
+
+  assert.equal(previous, null);
 });
 
 function createFilesStub() {

@@ -1,22 +1,29 @@
 import type { AppConfig } from "./config.js";
-import { createReviewFolder, type CreatedFolder } from "./drive.js";
+import {
+  createReviewFolder,
+  findPreviousReviewReport,
+  type CreatedFolder
+} from "./drive.js";
 import { sendChatMessage } from "./google-chat.js";
 import { buildAuthUrl } from "./oauth.js";
 import type { TokenStorage } from "./storage.js";
 import type { ChatEvent, ChatFormInput, ReviewRequest } from "./types.js";
 
 const SUBMIT_FUNCTION = "submitReview";
+const CONFIRM_WITHOUT_PREVIOUS_FUNCTION = "confirmReviewWithoutPrevious";
 const REVIEW_COMMAND_ID = 1;
 const HEALTH_COMMAND_ID = 2;
 
 type ChatEventHandlerDeps = {
   createReviewFolder: typeof createReviewFolder;
+  findPreviousReviewReport: typeof findPreviousReviewReport;
   buildAuthUrl: typeof buildAuthUrl;
   sendChatMessage: typeof sendChatMessage;
 };
 
 const defaultDeps: ChatEventHandlerDeps = {
   createReviewFolder,
+  findPreviousReviewReport,
   buildAuthUrl,
   sendChatMessage
 };
@@ -59,6 +66,11 @@ export function createChatEventHandler(deps: Partial<ChatEventHandlerDeps> = {})
     return handleReviewSubmit(config, storage, chatUserId, event, resolvedDeps);
   }
 
+  if (actionName === CONFIRM_WITHOUT_PREVIOUS_FUNCTION) {
+    logChatEvent("route.confirmWithoutPrevious");
+    return handleConfirmReviewWithoutPrevious(config, storage, chatUserId, event, resolvedDeps);
+  }
+
   if (appCommandId === REVIEW_COMMAND_ID) {
     logChatEvent("route.reviewDialog");
     return addOnDialogResponse(reviewFormCard(config));
@@ -99,49 +111,10 @@ async function handleReviewSubmit(
     return actionResponseText(parsed.error);
   }
 
-  if (!config.reviewReportTemplateId) {
-    const errorText = "Настройте REVIEW_REPORT_TEMPLATE_ID в .env.local или .env.";
-    logChatEvent("submit.validationFailed", { error: errorText });
-    if (isDialogSubmit) {
-      if (event.commonEventObject) {
-        return addOnTextResponse(errorText);
-      }
-      return dialogActionStatusResponse(errorText, "INVALID_ARGUMENT");
-    }
-    if (isAddOnEvent) {
-      return addOnTextResponse(errorText);
-    }
-    return actionResponseText(errorText);
-  }
-
-  if (!config.internalReviewFormTemplateId) {
-    const errorText = "Настройте INTERNAL_REVIEW_FORM_TEMPLATE_ID в .env.local или .env.";
-    logChatEvent("submit.validationFailed", { error: errorText });
-    if (isDialogSubmit) {
-      if (event.commonEventObject) {
-        return addOnTextResponse(errorText);
-      }
-      return dialogActionStatusResponse(errorText, "INVALID_ARGUMENT");
-    }
-    if (isAddOnEvent) {
-      return addOnTextResponse(errorText);
-    }
-    return actionResponseText(errorText);
-  }
-
-  if (parsed.value.needsClientForm && !config.clientReviewFormTemplateId) {
-    const errorText = "Настройте CLIENT_REVIEW_FORM_TEMPLATE_ID в .env.local или .env.";
-    logChatEvent("submit.validationFailed", { error: errorText });
-    if (isDialogSubmit) {
-      if (event.commonEventObject) {
-        return addOnTextResponse(errorText);
-      }
-      return dialogActionStatusResponse(errorText, "INVALID_ARGUMENT");
-    }
-    if (isAddOnEvent) {
-      return addOnTextResponse(errorText);
-    }
-    return actionResponseText(errorText);
+  const configError = validateReviewConfig(config, parsed.value);
+  if (configError) {
+    logChatEvent("submit.validationFailed", { error: configError });
+    return respondReviewMessage(isDialogSubmit, isAddOnEvent, event, configError, "INVALID_ARGUMENT");
   }
 
   const token = await storage.get(chatUserId);
@@ -162,20 +135,145 @@ async function handleReviewSubmit(
 
   const month = formatReviewMonth(parsed.value.reviewDate);
 
+  let previousReviewUrl = "";
+  try {
+    const previousReview = await deps.findPreviousReviewReport(
+      config,
+      token.refreshToken,
+      parsed.value.fullName,
+      month
+    );
+
+    if (previousReview) {
+      previousReviewUrl = previousReview.webViewLink;
+      logChatEvent("submit.previousReview.found", {
+        reportName: previousReview.name,
+        webViewLink: previousReview.webViewLink
+      });
+    } else {
+      logChatEvent("submit.previousReview.missing", { fullName: parsed.value.fullName, reviewMonth: month });
+      await storage.savePendingReview({
+        chatUserId,
+        reviewMonth: month,
+        createdAt: new Date().toISOString(),
+        ...parsed.value
+      });
+      return respondReviewDialog(
+        isDialogSubmit,
+        isAddOnEvent,
+        event,
+        confirmWithoutPreviousReviewCard(config)
+      );
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    logChatEvent("submit.previousReview.failed", { message });
+    const errorText = [
+      "Не удалось найти предыдущее ревью.",
+      `Ошибка Google Drive: ${message}`
+    ].join("\n");
+    return respondReviewMessage(isDialogSubmit, isAddOnEvent, event, errorText, "INVALID_ARGUMENT");
+  }
+
+  return executeReviewCreation(
+    config,
+    storage,
+    chatUserId,
+    event,
+    deps,
+    token.refreshToken,
+    token.googleUserEmail,
+    parsed.value,
+    month,
+    previousReviewUrl,
+    isDialogSubmit,
+    isAddOnEvent
+  );
+}
+
+async function handleConfirmReviewWithoutPrevious(
+  config: AppConfig,
+  storage: TokenStorage,
+  chatUserId: string,
+  event: ChatEvent,
+  deps: ChatEventHandlerDeps
+): Promise<Record<string, unknown>> {
+  const isAddOnEvent = Boolean(event.chat?.buttonClickedPayload || event.commonEventObject);
+  const isDialogSubmit = event.chat?.buttonClickedPayload?.dialogEventType === "SUBMIT_DIALOG";
+  const pending = await storage.consumePendingReview(chatUserId);
+
+  if (!pending) {
+    const errorText = "Нет сохранённого запроса. Повторите /review и отправьте форму заново.";
+    return respondReviewMessage(isDialogSubmit, isAddOnEvent, event, errorText, "INVALID_ARGUMENT");
+  }
+
+  const configError = validateReviewConfig(config, pending);
+  if (configError) {
+    return respondReviewMessage(isDialogSubmit, isAddOnEvent, event, configError, "INVALID_ARGUMENT");
+  }
+
+  const token = await storage.get(chatUserId);
+  if (!token) {
+    logChatEvent("submit.authRequired", { chatUserId });
+    const authUrl = await deps.buildAuthUrl(config, storage, chatUserId);
+    if (isAddOnEvent) {
+      return addOnTextResponse(
+        [
+          "Нужно подключить Google-аккаунт ревьюера.",
+          "Откройте ссылку, пройдите OAuth и повторите /review:",
+          authUrl
+        ].join("\n")
+      );
+    }
+    return actionResponseCard(authRequiredCard(authUrl));
+  }
+
+  return executeReviewCreation(
+    config,
+    storage,
+    chatUserId,
+    event,
+    deps,
+    token.refreshToken,
+    token.googleUserEmail,
+    pending,
+    pending.reviewMonth,
+    "",
+    isDialogSubmit,
+    isAddOnEvent
+  );
+}
+
+async function executeReviewCreation(
+  config: AppConfig,
+  storage: TokenStorage,
+  chatUserId: string,
+  event: ChatEvent,
+  deps: ChatEventHandlerDeps,
+  refreshToken: string,
+  reviewerEmail: string,
+  request: ReviewRequest,
+  reviewMonth: string,
+  previousReviewUrl: string,
+  isDialogSubmit: boolean,
+  isAddOnEvent: boolean
+): Promise<Record<string, unknown>> {
   logChatEvent("submit.createFolder.start", {
-    fullName: parsed.value.fullName,
-    reviewMonth: month,
-    needsClientForm: parsed.value.needsClientForm
+    fullName: request.fullName,
+    reviewMonth,
+    needsClientForm: request.needsClientForm,
+    hasPreviousReview: Boolean(previousReviewUrl)
   });
   let folder;
   try {
-    folder = await deps.createReviewFolder(config, token.refreshToken, {
-      fullName: parsed.value.fullName,
-      employeeEmail: parsed.value.employeeEmail,
-      reviewerEmail: token.googleUserEmail,
-      reviewDate: parsed.value.reviewDate,
-      reviewMonth: month,
-      needsClientForm: parsed.value.needsClientForm
+    folder = await deps.createReviewFolder(config, refreshToken, {
+      fullName: request.fullName,
+      employeeEmail: request.employeeEmail,
+      reviewerEmail,
+      reviewDate: request.reviewDate,
+      reviewMonth,
+      needsClientForm: request.needsClientForm,
+      previousReviewUrl
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -189,7 +287,7 @@ async function handleReviewSubmit(
       if (event.commonEventObject) {
         return addOnTextResponse(errorText);
       }
-      void sendSubmitResultToChat(config, deps, token.refreshToken, event, errorText);
+      void sendSubmitResultToChat(config, deps, refreshToken, event, errorText);
       return dialogActionStatusResponse(
         "Не удалось выполнить /review. Ошибка отправлена в чат.",
         "INVALID_ARGUMENT"
@@ -207,13 +305,13 @@ async function handleReviewSubmit(
     hasLink: Boolean(folder.webViewLink)
   });
 
-  const successText = formatReviewSuccessMessage(folder, parsed.value.needsClientForm);
+  const successText = formatReviewSuccessMessage(folder, request.needsClientForm, previousReviewUrl);
 
   if (isDialogSubmit) {
     if (event.commonEventObject) {
       return addOnTextResponse(successText);
     }
-    void sendSubmitResultToChat(config, deps, token.refreshToken, event, successText);
+    void sendSubmitResultToChat(config, deps, refreshToken, event, successText);
     return dialogActionStatusResponse("Готово. Отчёт отправлен в чат.", "OK");
   }
 
@@ -222,6 +320,56 @@ async function handleReviewSubmit(
   }
 
   return actionResponseText(successText);
+}
+
+function validateReviewConfig(config: AppConfig, request: ReviewRequest): string | null {
+  if (!config.reviewReportTemplateId) {
+    return "Настройте REVIEW_REPORT_TEMPLATE_ID в .env.local или .env.";
+  }
+  if (!config.internalReviewFormTemplateId) {
+    return "Настройте INTERNAL_REVIEW_FORM_TEMPLATE_ID в .env.local или .env.";
+  }
+  if (request.needsClientForm && !config.clientReviewFormTemplateId) {
+    return "Настройте CLIENT_REVIEW_FORM_TEMPLATE_ID в .env.local или .env.";
+  }
+  return null;
+}
+
+function respondReviewMessage(
+  isDialogSubmit: boolean,
+  isAddOnEvent: boolean,
+  event: ChatEvent,
+  text: string,
+  statusCode: "OK" | "INVALID_ARGUMENT"
+): Record<string, unknown> {
+  if (isDialogSubmit) {
+    if (event.commonEventObject) {
+      return addOnTextResponse(text);
+    }
+    return dialogActionStatusResponse(text, statusCode);
+  }
+  if (isAddOnEvent) {
+    return addOnTextResponse(text);
+  }
+  return actionResponseText(text);
+}
+
+function respondReviewDialog(
+  isDialogSubmit: boolean,
+  isAddOnEvent: boolean,
+  event: ChatEvent,
+  card: Record<string, unknown>
+): Record<string, unknown> {
+  if (isDialogSubmit && event.commonEventObject) {
+    return addOnDialogResponse(card);
+  }
+  if (isDialogSubmit) {
+    return dialogResponse(card);
+  }
+  if (isAddOnEvent) {
+    return addOnDialogResponse(card);
+  }
+  return actionResponseCard(card);
 }
 
 function parseReviewRequest(
@@ -309,11 +457,16 @@ function formatReviewMonth(date: string): string {
   return date.slice(0, 7).replace("-", ".");
 }
 
-function formatReviewSuccessMessage(folder: CreatedFolder, needsClientForm: boolean): string {
+function formatReviewSuccessMessage(
+  folder: CreatedFolder,
+  needsClientForm: boolean,
+  previousReviewUrl = ""
+): string {
   return [
     `Создана папка ревью: ${folder.name}`,
     `Ссылка: ${folder.webViewLink}`,
     ...(folder.report?.webViewLink ? [`PR report: ${folder.report.webViewLink}`] : []),
+    ...(previousReviewUrl ? [`Previous review: ${previousReviewUrl}`] : []),
     ...(folder.internalForm?.webViewLink
       ? [`Internal feedback form: ${folder.internalForm.webViewLink}`]
       : []),
@@ -427,6 +580,45 @@ function actionResponseCard(card: Record<string, unknown>): Record<string, unkno
       {
         cardId: "auth-required",
         card
+      }
+    ]
+  };
+}
+
+function confirmWithoutPreviousReviewCard(config: AppConfig): Record<string, unknown> {
+  return {
+    header: {
+      title: "Предыдущее ревью не найдено"
+    },
+    sections: [
+      {
+        widgets: [
+          {
+            textParagraph: {
+              text: "Предыдущее ревью не найдено. Продолжить без него?"
+            }
+          },
+          {
+            buttonList: {
+              buttons: [
+                {
+                  text: "Продолжить без предыдущего ревью",
+                  onClick: {
+                    action: {
+                      function: `${config.appBaseUrl}/google-chat/events`,
+                      parameters: [
+                        {
+                          key: "actionName",
+                          value: CONFIRM_WITHOUT_PREVIOUS_FUNCTION
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
       }
     ]
   };
