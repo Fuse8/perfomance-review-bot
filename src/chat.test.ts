@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AppConfig } from "./config.js";
-import { createChatEventHandler } from "./chat.js";
+import { createChatEventHandler, getDirectorySearchQuery } from "./chat.js";
 import type { TokenStorage } from "./storage.js";
 import type { ChatEvent } from "./types.js";
 
@@ -49,6 +49,8 @@ function createHandler(overrides: Partial<{
   createCalendarEvent: ChatEventHandlerDeps["createCalendarEvent"];
   createReviewerReminderEvents: ChatEventHandlerDeps["createReviewerReminderEvents"];
   findPreviousReviewReport: ChatEventHandlerDeps["findPreviousReviewReport"];
+  findEmployeeFolder: ChatEventHandlerDeps["findEmployeeFolder"];
+  searchDirectoryEmployees: ChatEventHandlerDeps["searchDirectoryEmployees"];
   sendChatMessage: ChatEventHandlerDeps["sendChatMessage"];
 }> = {}) {
   return createChatEventHandler({
@@ -98,6 +100,8 @@ type ChatEventHandlerDeps = {
   createCalendarEvent: typeof import("./calendar.js").createCalendarEvent;
   createReviewerReminderEvents: typeof import("./calendar.js").createReviewerReminderEvents;
   findPreviousReviewReport: typeof import("./drive.js").findPreviousReviewReport;
+  findEmployeeFolder: typeof import("./drive.js").findEmployeeFolder;
+  searchDirectoryEmployees: typeof import("./people.js").searchDirectoryEmployees;
   buildAuthUrl: typeof import("./oauth.js").buildAuthUrl;
   sendChatMessage: typeof import("./google-chat.js").sendChatMessage;
 };
@@ -126,6 +130,334 @@ test("/check returns smoke-test response", async () => {
       }
     }
   });
+});
+
+test("/review opens employee lookup card", async () => {
+  const handleChatEvent = createChatEventHandler();
+
+  const response = await handleChatEvent(config, storage, {
+    user: {
+      name: "users/123"
+    },
+    chat: {
+      appCommandPayload: {
+        appCommandMetadata: {
+          appCommandId: 1
+        }
+      }
+    }
+  });
+
+  const card = getFirstCard(response);
+  const widgets = card.sections?.[0]?.widgets ?? [];
+
+  assert.equal(card.header?.title, "Выбор сотрудника");
+  assert.deepEqual(widgets[0], {
+    selectionInput: {
+      name: "employeeFolder",
+      type: "MULTI_SELECT",
+      label: "Имя, фамилия или email",
+      multiSelectMaxSelectedItems: 1,
+      multiSelectMinQueryLength: 1,
+      onChangeAction: {
+        function: "https://example.test/google-chat/events",
+        parameters: [
+          {
+            key: "actionName",
+            value: "selectEmployee"
+          }
+        ]
+      },
+      externalDataSource: {
+        function: "https://example.test/google-chat/events"
+      }
+    }
+  });
+  assert.equal(widgets.length, 1);
+});
+
+test("/review employee suggestions return matching directory employees", async () => {
+  const handleChatEvent = createHandler({
+    async searchDirectoryEmployees(_config, refreshToken, query) {
+      assert.equal(refreshToken, "refresh-token");
+      assert.equal(query, "ivan");
+      return [
+        {
+          fullName: "Ivan Petrov",
+          email: "ivan.petrov@fuse8.online",
+          resourceName: "people/c123"
+        }
+      ];
+    }
+  });
+
+  const response = await handleChatEvent(config, storage, employeeSuggestionsEvent("ivan"));
+
+  assert.deepEqual(response, {
+    action: {
+      modifyOperations: [
+        {
+          updateWidget: {
+            selectionInputWidgetSuggestions: {
+              suggestions: [
+                {
+                  text: "Ivan Petrov (ivan.petrov@fuse8.online)",
+                  value: "ivan.petrov@fuse8.online|Ivan Petrov"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  });
+});
+
+test("/review employee suggestions show empty-state message when nothing matches", async () => {
+  const handleChatEvent = createHandler({
+    async searchDirectoryEmployees() {
+      return [];
+    }
+  });
+
+  const response = await handleChatEvent(config, storage, employeeSuggestionsEvent("unknown"));
+
+  assert.deepEqual(response, {
+    action: {
+      modifyOperations: [
+        {
+          updateWidget: {
+            selectionInputWidgetSuggestions: {
+              suggestions: [
+                {
+                  text: "Сотрудник не найден",
+                  bottomText: "Попробуйте поиск по другому параметру или на английском языке",
+                  value: "__no_results__"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  });
+});
+
+test("getDirectorySearchQuery keeps latin queries unchanged", () => {
+  assert.equal(getDirectorySearchQuery("ivan"), "ivan");
+  assert.equal(getDirectorySearchQuery("Andrey Stepanov"), "Andrey Stepanov");
+});
+
+test("getDirectorySearchQuery transliterates cyrillic queries to latin for directory search", () => {
+  assert.equal(getDirectorySearchQuery("иван"), "ivan");
+  assert.equal(getDirectorySearchQuery("Андрей"), "andrey");
+  assert.equal(getDirectorySearchQuery("Андрей Степанов"), "andrey stepanov");
+});
+
+test("/review employee suggestions transliterate cyrillic query before directory search", async () => {
+  const handleChatEvent = createHandler({
+    async searchDirectoryEmployees(_config, refreshToken, query) {
+      assert.equal(refreshToken, "refresh-token");
+      assert.equal(query, "andrey");
+      return [
+        {
+          fullName: "Andrey Stepanov",
+          email: "andrey.stepanov@fuse8.online",
+          resourceName: "people/c456"
+        }
+      ];
+    }
+  });
+
+  const response = await handleChatEvent(config, storage, employeeSuggestionsEvent("Андрей"));
+
+  assert.deepEqual(response, {
+    action: {
+      modifyOperations: [
+        {
+          updateWidget: {
+            selectionInputWidgetSuggestions: {
+              suggestions: [
+                {
+                  text: "Andrey Stepanov (andrey.stepanov@fuse8.online)",
+                  value: "andrey.stepanov@fuse8.online|Andrey Stepanov"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  });
+});
+
+test("/review employee selection updates card with full name and email inputs", async () => {
+  const handleChatEvent = createHandler();
+
+  const response = await handleChatEvent(
+    config,
+    storage,
+    employeeSelectEvent("ivan.petrov@fuse8.online|Ivan Petrov")
+  );
+
+  const card = getUpdatedCard(response);
+  const widgets = card.sections?.[0]?.widgets ?? [];
+
+  assert.deepEqual(widgets[1], {
+    textInput: {
+      name: "manualFullName",
+      label: "Имя и фамилия (название папки)",
+      type: "SINGLE_LINE",
+      value: "Ivan Petrov"
+    }
+  });
+  assert.deepEqual(widgets[2], {
+    textInput: {
+      name: "employeeEmail",
+      label: "Email",
+      type: "SINGLE_LINE",
+      value: "ivan.petrov@fuse8.online"
+    }
+  });
+});
+
+test("/review employee selection uses the latest selected employee value", async () => {
+  const handleChatEvent = createHandler();
+
+  const response = await handleChatEvent(
+    config,
+    storage,
+    employeeSelectEvent([
+      "andrey.stepanov@fuse8.online|Andrey Stepanov",
+      "anton.permyakov@byteminds.co.uk|Anton Permyakov"
+    ])
+  );
+
+  const card = getUpdatedCard(response);
+  const widgets = card.sections?.[0]?.widgets ?? [];
+
+  assert.deepEqual(widgets[1], {
+    textInput: {
+      name: "manualFullName",
+      label: "Имя и фамилия (название папки)",
+      type: "SINGLE_LINE",
+      value: "Anton Permyakov"
+    }
+  });
+  assert.deepEqual(widgets[2], {
+    textInput: {
+      name: "employeeEmail",
+      label: "Email",
+      type: "SINGLE_LINE",
+      value: "anton.permyakov@byteminds.co.uk"
+    }
+  });
+});
+
+test("/review employee selection ignores stale persisted name and email fields", async () => {
+  const handleChatEvent = createHandler();
+
+  const response = await handleChatEvent(
+    config,
+    storage,
+    employeeSelectEvent("andrey.stepanov@fuse8.online|Andrey Stepanov", {
+      manualFullName: "Anton Permyakov",
+      employeeEmail: "anton.permyakov@byteminds.co.uk"
+    })
+  );
+
+  const card = getUpdatedCard(response);
+  const widgets = card.sections?.[0]?.widgets ?? [];
+
+  assert.deepEqual(widgets[1], {
+    textInput: {
+      name: "manualFullName",
+      label: "Имя и фамилия (название папки)",
+      type: "SINGLE_LINE",
+      value: "Andrey Stepanov"
+    }
+  });
+  assert.deepEqual(widgets[2], {
+    textInput: {
+      name: "employeeEmail",
+      label: "Email",
+      type: "SINGLE_LINE",
+      value: "andrey.stepanov@fuse8.online"
+    }
+  });
+});
+
+test("/review employee selection keeps directory English name in full name input", async () => {
+  const handleChatEvent = createHandler();
+
+  const response = await handleChatEvent(
+    config,
+    storage,
+    employeeSelectEvent("andrey.stepanov@fuse8.online|Andrey Stepanov")
+  );
+  const card = getUpdatedCard(response);
+  const widgets = card.sections?.[0]?.widgets ?? [];
+
+  assert.deepEqual(widgets[1], {
+    textInput: {
+      name: "manualFullName",
+      label: "Имя и фамилия (название папки)",
+      type: "SINGLE_LINE",
+      value: "Andrey Stepanov"
+    }
+  });
+});
+
+test("/review employee check verifies selected directory employee against Drive folder", async () => {
+  const handleChatEvent = createHandler({
+    async findEmployeeFolder(_config, refreshToken, fullName) {
+      assert.equal(refreshToken, "refresh-token");
+      assert.equal(fullName, "Ivan Petrov");
+      return { id: "employee-folder-id", name: "Ivan Petrov" };
+    }
+  });
+
+  const response = await handleChatEvent(
+    config,
+    storage,
+    employeeCheckEvent({ manualFullName: "Ivan Petrov" })
+  );
+
+  assert.match(getResponseText(response), /Папка найдена: Ivan Petrov/);
+});
+
+test("/review employee check returns clear text when selected directory employee has no Drive folder", async () => {
+  const handleChatEvent = createHandler({
+    async findEmployeeFolder() {
+      return null;
+    }
+  });
+
+  const response = await handleChatEvent(
+    config,
+    storage,
+    employeeCheckEvent({ manualFullName: "Ivan Petrov" })
+  );
+
+  assert.match(getResponseText(response), /Папка сотрудника не найдена: Ivan Petrov/);
+});
+
+test("/review employee check validates manual full name against Drive folder", async () => {
+  const handleChatEvent = createHandler({
+    async findEmployeeFolder(_config, refreshToken, fullName) {
+      assert.equal(refreshToken, "refresh-token");
+      assert.equal(fullName, "Ivan Petrov");
+      return { id: "employee-folder-id", name: "Ivan Petrov" };
+    }
+  });
+
+  const response = await handleChatEvent(
+    config,
+    storage,
+    employeeCheckEvent({ manualFullName: "Ivan Petrov" })
+  );
+
+  assert.match(getResponseText(response), /Папка найдена: Ivan Petrov/);
 });
 
 test("/review submit creates a test folder and returns its link", async () => {
@@ -595,6 +927,104 @@ function confirmWithoutPreviousEvent(
   return event;
 }
 
+function employeeSuggestionsEvent(query: string): ChatEvent {
+  return {
+    user: {
+      name: "users/123"
+    },
+    chat: {
+      widgetUpdatedPayload: {}
+    },
+    commonEventObject: {
+      parameters: {
+        autocomplete_widget_query: query
+      }
+    }
+  };
+}
+
+function employeeSelectEvent(
+  selectedEmployee: string | string[],
+  staleInputs: { manualFullName?: string; employeeEmail?: string } = {}
+): ChatEvent {
+  return {
+    user: {
+      name: "users/123"
+    },
+    chat: {
+      buttonClickedPayload: {
+        isDialogEvent: true
+      }
+    },
+    commonEventObject: {
+      parameters: {
+        actionName: "selectEmployee"
+      },
+      formInputs: {
+        employeeFolder: {
+          stringInputs: {
+            value: Array.isArray(selectedEmployee) ? selectedEmployee : [selectedEmployee]
+          }
+        },
+        ...(staleInputs.manualFullName
+          ? {
+            manualFullName: {
+              stringInputs: {
+                value: [staleInputs.manualFullName]
+              }
+            }
+          }
+          : {}),
+        ...(staleInputs.employeeEmail
+          ? {
+            employeeEmail: {
+              stringInputs: {
+                value: [staleInputs.employeeEmail]
+              }
+            }
+          }
+          : {})
+      }
+    }
+  };
+}
+
+function employeeCheckEvent(
+  overrides: {
+    selectedEmployee?: string;
+    manualFullName?: string;
+  } = {}
+): ChatEvent {
+  return {
+    user: {
+      name: "users/123"
+    },
+    chat: {
+      buttonClickedPayload: {
+        isDialogEvent: true,
+        dialogEventType: "SUBMIT_DIALOG"
+      }
+    },
+    commonEventObject: {
+      parameters: {
+        actionName: "checkEmployeeFolder"
+      },
+      formInputs: {
+        employeeFolder: {
+          stringInputs: {
+            value: overrides.selectedEmployee ? [overrides.selectedEmployee] : []
+          }
+        },
+        manualFullName: {
+          stringInputs: {
+            value: overrides.manualFullName ? [overrides.manualFullName] : []
+          }
+        }
+      }
+    }
+  };
+}
+
 function reviewSubmitEvent(
   overrides: {
     employeeEmail?: string;
@@ -658,6 +1088,37 @@ function reviewSubmitEvent(
   }
 
   return event;
+}
+
+function getUpdatedCard(response: Record<string, unknown>): {
+  header?: { title?: string };
+  sections?: Array<{ widgets?: unknown[] }>;
+} {
+  const action = response.action as {
+    navigations?: Array<{ updateCard?: { header?: { title?: string }; sections?: Array<{ widgets?: unknown[] }> } }>;
+  };
+  return action?.navigations?.[0]?.updateCard ?? {};
+}
+
+function getFirstCard(response: Record<string, unknown>): {
+  header?: { title?: string };
+  sections?: Array<{ widgets?: unknown[] }>;
+} {
+  const action = response.action as {
+    navigations?: Array<{ pushCard?: { header?: { title?: string }; sections?: Array<{ widgets?: unknown[] }> } }>;
+  };
+  if (action?.navigations?.[0]?.pushCard) {
+    return action.navigations[0].pushCard;
+  }
+
+  const actionResponse = response.actionResponse as {
+    dialogAction?: {
+      dialog?: {
+        body?: { header?: { title?: string }; sections?: Array<{ widgets?: unknown[] }> };
+      };
+    };
+  };
+  return actionResponse?.dialogAction?.dialog?.body ?? {};
 }
 
 function getResponseText(response: Record<string, unknown>): string {

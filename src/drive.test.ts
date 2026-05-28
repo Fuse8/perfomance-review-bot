@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createReviewFolderInDrive,
+  findEmployeeFolderInDrive,
   findPreviousReviewReportInDrive,
   isReviewMonthFolderName,
+  listEmployeeFoldersInDrive,
   normalizePersonName
 } from "./drive.js";
 
@@ -14,6 +16,55 @@ test("isReviewMonthFolderName matches YYYY.MM folders", () => {
 
 test("normalizePersonName trims, lowercases and collapses spaces", () => {
   assert.equal(normalizePersonName("  Ivan   PETROV  "), "ivan petrov");
+});
+
+test("listEmployeeFoldersInDrive returns matching employee folders", async () => {
+  const files = {
+    async list(params: { q?: string; fields?: string; pageSize?: number }) {
+      assert.match(params.q ?? "", /root-folder-id/);
+      assert.equal(params.fields, "files(id,name)");
+      assert.equal(params.pageSize, 100);
+      return {
+        data: {
+          files: [
+            { id: "ivan-folder-id", name: "Ivan Petrov" },
+            { id: "petr-folder-id", name: "Petr Ivanov" },
+            { id: "empty-name", name: "" },
+            { id: null, name: "No Id" }
+          ]
+        }
+      };
+    }
+  };
+
+  const folders = await listEmployeeFoldersInDrive(files, "root-folder-id", "ivan");
+
+  assert.deepEqual(folders, [
+    { id: "ivan-folder-id", name: "Ivan Petrov" },
+    { id: "petr-folder-id", name: "Petr Ivanov" }
+  ]);
+});
+
+test("findEmployeeFolderInDrive finds employee by exact normalized folder name", async () => {
+  const files = {
+    async list() {
+      return {
+        data: {
+          files: [
+            { id: "wrong-folder-id", name: "Ivan Ivanov" },
+            { id: "employee-folder-id", name: "  IVAN   petrov " }
+          ]
+        }
+      };
+    }
+  };
+
+  const folder = await findEmployeeFolderInDrive(files, "root-folder-id", "Ivan Petrov");
+
+  assert.deepEqual(folder, {
+    id: "employee-folder-id",
+    name: "  IVAN   petrov "
+  });
 });
 
 test("createReviewFolderInDrive creates review month folder inside matched employee folder", async () => {

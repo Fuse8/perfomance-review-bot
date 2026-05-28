@@ -7,24 +7,76 @@ import {
 } from "./calendar.js";
 import {
   createReviewFolder,
+  findEmployeeFolder,
   findPreviousReviewReport,
   type CreatedFolder
 } from "./drive.js";
 import { sendChatMessage } from "./google-chat.js";
 import { buildAuthUrl } from "./oauth.js";
+import { searchDirectoryEmployees } from "./people.js";
 import type { TokenStorage } from "./storage.js";
 import type { ChatEvent, ChatFormInput, ReviewRequest } from "./types.js";
 
 const SUBMIT_FUNCTION = "submitReview";
+const SELECT_EMPLOYEE_FUNCTION = "selectEmployee";
+const CHECK_EMPLOYEE_FOLDER_FUNCTION = "checkEmployeeFolder";
 const CONFIRM_WITHOUT_PREVIOUS_FUNCTION = "confirmReviewWithoutPrevious";
 const REVIEW_COMMAND_ID = 1;
 const HEALTH_COMMAND_ID = 2;
+const EMPLOYEE_SEARCH_NO_RESULTS_VALUE = "__no_results__";
+const EMPLOYEE_SEARCH_NO_RESULTS_TEXT = "Сотрудник не найден";
+const EMPLOYEE_SEARCH_NO_RESULTS_HINT = "Попробуйте поиск по другому параметру или на английском языке";
+const TRANSLIT_REPLACEMENTS: Array<[string, string]> = [
+  ["sch", "щ"],
+  ["yo", "ё"],
+  ["yu", "ю"],
+  ["ya", "я"],
+  ["ye", "е"],
+  ["zh", "ж"],
+  ["ch", "ч"],
+  ["sh", "ш"],
+  ["kh", "х"],
+  ["lts", "льц"],
+  ["ts", "ц"],
+  ["ey", "ей"],
+  ["ry", "рий"],
+  ["iy", "ий"],
+  ["a", "а"],
+  ["b", "б"],
+  ["v", "в"],
+  ["g", "г"],
+  ["d", "д"],
+  ["e", "е"],
+  ["z", "з"],
+  ["i", "и"],
+  ["y", "й"],
+  ["k", "к"],
+  ["l", "л"],
+  ["m", "м"],
+  ["n", "н"],
+  ["o", "о"],
+  ["p", "п"],
+  ["r", "р"],
+  ["s", "с"],
+  ["t", "т"],
+  ["u", "у"],
+  ["f", "ф"],
+  ["h", "х"],
+  ["c", "к"],
+  ["j", "дж"],
+  ["w", "в"],
+  ["x", "кс"],
+  ["q", "к"]
+];
+const REVERSE_TRANSLIT_REPLACEMENTS = buildReverseTranslReplacements(TRANSLIT_REPLACEMENTS);
 
 type ChatEventHandlerDeps = {
   createReviewFolder: typeof createReviewFolder;
   createCalendarEvent: typeof createCalendarEvent;
   createReviewerReminderEvents: typeof createReviewerReminderEvents;
+  findEmployeeFolder: typeof findEmployeeFolder;
   findPreviousReviewReport: typeof findPreviousReviewReport;
+  searchDirectoryEmployees: typeof searchDirectoryEmployees;
   buildAuthUrl: typeof buildAuthUrl;
   sendChatMessage: typeof sendChatMessage;
 };
@@ -33,7 +85,9 @@ const defaultDeps: ChatEventHandlerDeps = {
   createReviewFolder,
   createCalendarEvent,
   createReviewerReminderEvents,
+  findEmployeeFolder,
   findPreviousReviewReport,
+  searchDirectoryEmployees,
   buildAuthUrl,
   sendChatMessage
 };
@@ -61,6 +115,11 @@ export function createChatEventHandler(deps: Partial<ChatEventHandlerDeps> = {})
       isDialogEvent: event.chat?.buttonClickedPayload?.isDialogEvent
     });
 
+    if (event.chat?.widgetUpdatedPayload) {
+      logChatEvent("route.employeeSuggestions");
+      return handleEmployeeSuggestions(config, storage, chatUserId, event, resolvedDeps);
+    }
+
     if (appCommandId === HEALTH_COMMAND_ID) {
       logChatEvent("route.check");
       return addOnTextResponse("hello world");
@@ -76,6 +135,16 @@ export function createChatEventHandler(deps: Partial<ChatEventHandlerDeps> = {})
     return handleReviewSubmit(config, storage, chatUserId, event, resolvedDeps);
   }
 
+  if (actionName === CHECK_EMPLOYEE_FOLDER_FUNCTION) {
+    logChatEvent("route.checkEmployeeFolder");
+    return handleEmployeeFolderCheck(config, storage, chatUserId, event, resolvedDeps);
+  }
+
+  if (actionName === SELECT_EMPLOYEE_FUNCTION) {
+    logChatEvent("route.selectEmployee");
+    return handleEmployeeSelect(config, event);
+  }
+
   if (actionName === CONFIRM_WITHOUT_PREVIOUS_FUNCTION) {
     logChatEvent("route.confirmWithoutPrevious");
     return handleConfirmReviewWithoutPrevious(config, storage, chatUserId, event, resolvedDeps);
@@ -83,7 +152,7 @@ export function createChatEventHandler(deps: Partial<ChatEventHandlerDeps> = {})
 
   if (appCommandId === REVIEW_COMMAND_ID) {
     logChatEvent("route.reviewDialog");
-    return addOnDialogResponse(reviewFormCard(config));
+    return addOnDialogResponse(employeeLookupCard(config));
   }
 
   logChatEvent("route.unknownCommand", { appCommandId, actionName });
@@ -92,6 +161,136 @@ export function createChatEventHandler(deps: Partial<ChatEventHandlerDeps> = {})
 }
 
 export const handleChatEvent = createChatEventHandler();
+
+async function handleEmployeeSuggestions(
+  config: AppConfig,
+  storage: TokenStorage,
+  chatUserId: string | undefined,
+  event: ChatEvent,
+  deps: ChatEventHandlerDeps
+): Promise<Record<string, unknown>> {
+  if (!chatUserId) {
+    return employeeSuggestionsResponse([]);
+  }
+
+  const token = await storage.get(chatUserId);
+  if (!token) {
+    logChatEvent("employeeSuggestions.authRequired", { chatUserId });
+    return employeeSuggestionsResponse([]);
+  }
+
+  const rawQuery = event.commonEventObject?.parameters?.autocomplete_widget_query ?? "";
+  const query = getDirectorySearchQuery(rawQuery);
+  const employees = await deps.searchDirectoryEmployees(config, token.refreshToken, query);
+  logChatEvent("employeeSuggestions.result", {
+    query: rawQuery,
+    searchQuery: query,
+    count: employees.length
+  });
+
+  return employeeSuggestionsResponse(
+    buildEmployeeSearchSuggestions(rawQuery, employees)
+  );
+}
+
+function buildEmployeeSearchSuggestions(
+  rawQuery: string,
+  employees: Array<{ fullName: string; email: string }>
+): Array<{ text: string; value: string; bottomText?: string }> {
+  if (employees.length > 0) {
+    return employees.map((employee) => ({
+      text: `${employee.fullName} (${employee.email})`,
+      value: encodeEmployeeSelection(employee.email, employee.fullName)
+    }));
+  }
+
+  if (!rawQuery.trim()) {
+    return [];
+  }
+
+  return [
+    {
+      text: EMPLOYEE_SEARCH_NO_RESULTS_TEXT,
+      bottomText: EMPLOYEE_SEARCH_NO_RESULTS_HINT,
+      value: EMPLOYEE_SEARCH_NO_RESULTS_VALUE
+    }
+  ];
+}
+
+async function handleEmployeeFolderCheck(
+  config: AppConfig,
+  storage: TokenStorage,
+  chatUserId: string,
+  event: ChatEvent,
+  deps: ChatEventHandlerDeps
+): Promise<Record<string, unknown>> {
+  const isAddOnEvent = Boolean(event.chat?.buttonClickedPayload || event.commonEventObject);
+  const isDialogSubmit = event.chat?.buttonClickedPayload?.dialogEventType === "SUBMIT_DIALOG";
+  const inputs = event.common?.formInputs ?? event.commonEventObject?.formInputs ?? {};
+  const manualFullName = getStringInput(inputs.manualFullName).trim();
+
+  if (!manualFullName) {
+    return respondReviewMessage(
+      isDialogSubmit,
+      isAddOnEvent,
+      event,
+      "Укажите имя и фамилию в поле «Имя и фамилия».",
+      "INVALID_ARGUMENT"
+    );
+  }
+
+  const token = await storage.get(chatUserId);
+  if (!token) {
+    logChatEvent("employeeCheck.authRequired", { chatUserId });
+    const authUrl = await deps.buildAuthUrl(config, storage, chatUserId);
+    return addOnTextResponse(
+      [
+        "Нужно подключить Google-аккаунт ревьюера.",
+        "Откройте ссылку, пройдите OAuth и повторите /review:",
+        authUrl
+      ].join("\n")
+    );
+  }
+
+  const folder = await deps.findEmployeeFolder(config, token.refreshToken, manualFullName);
+  if (!folder) {
+    return respondReviewMessage(
+      isDialogSubmit,
+      isAddOnEvent,
+      event,
+      `Папка сотрудника не найдена: ${manualFullName}`,
+      "INVALID_ARGUMENT"
+    );
+  }
+
+  return respondReviewMessage(
+    isDialogSubmit,
+    isAddOnEvent,
+    event,
+    `Папка найдена: ${folder.name}`,
+    "OK"
+  );
+}
+
+function handleEmployeeSelect(
+  config: AppConfig,
+  event: ChatEvent
+): Record<string, unknown> {
+  const inputs = event.common?.formInputs ?? event.commonEventObject?.formInputs ?? {};
+  const selectedEmployee = parseEmployeeSelection(getLastStringInput(inputs.employeeFolder));
+
+  if (!selectedEmployee) {
+    return updateDialogCard(employeeLookupCard(config));
+  }
+
+  return updateDialogCard(
+    employeeLookupCard(config, {
+      fullName: selectedEmployee.name,
+      email: selectedEmployee.id,
+      selectedEmployeeValue: encodeEmployeeSelection(selectedEmployee.id, selectedEmployee.name)
+    })
+  );
+}
 
 async function handleReviewSubmit(
   config: AppConfig,
@@ -467,6 +666,18 @@ function respondReviewDialog(
   return actionResponseCard(card);
 }
 
+function updateDialogCard(card: Record<string, unknown>): Record<string, unknown> {
+  return {
+    action: {
+      navigations: [
+        {
+          updateCard: card
+        }
+      ]
+    }
+  };
+}
+
 function parseReviewRequest(
   config: AppConfig,
   inputs: Record<string, ChatFormInput>
@@ -527,6 +738,11 @@ function parseReviewRequest(
 
 function getStringInput(input: ChatFormInput | undefined): string {
   return input?.stringInputs?.value?.[0] ?? "";
+}
+
+function getLastStringInput(input: ChatFormInput | undefined): string {
+  const values = input?.stringInputs?.value ?? [];
+  return values.at(-1) ?? "";
 }
 
 function getDateInput(input: ChatFormInput | undefined): string {
@@ -708,6 +924,90 @@ function actionResponseCard(card: Record<string, unknown>): Record<string, unkno
   };
 }
 
+function employeeSuggestionsResponse(
+  suggestions: Array<{ text: string; value: string; bottomText?: string }>
+): Record<string, unknown> {
+  return {
+    action: {
+      modifyOperations: [
+        {
+          updateWidget: {
+            selectionInputWidgetSuggestions: {
+              suggestions
+            }
+          }
+        }
+      ]
+    }
+  };
+}
+
+function encodeEmployeeSelection(id: string, name: string): string {
+  return `${id}|${name}`;
+}
+
+function parseEmployeeSelection(value: string): { id: string; name: string } | null {
+  const separatorIndex = value.indexOf("|");
+  if (separatorIndex < 1) {
+    return null;
+  }
+
+  const id = value.slice(0, separatorIndex).trim();
+  const name = value.slice(separatorIndex + 1).trim();
+  if (!id || !name) {
+    return null;
+  }
+
+  return { id, name };
+}
+
+export function getDirectorySearchQuery(query: string): string {
+  return query
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => (containsCyrillic(word) ? reverseTransliterateWord(word) : word))
+    .join(" ");
+}
+
+function containsCyrillic(text: string): boolean {
+  return /[\u0400-\u04FF]/.test(text);
+}
+
+function buildReverseTranslReplacements(
+  replacements: Array<[string, string]>
+): Array<[string, string]> {
+  const byCyrillic = new Map<string, string>();
+
+  for (const [latin, cyrillic] of replacements) {
+    const existing = byCyrillic.get(cyrillic);
+    if (!existing || latin.length < existing.length) {
+      byCyrillic.set(cyrillic, latin);
+    }
+  }
+
+  return [...byCyrillic.entries()].sort((a, b) => b[0].length - a[0].length);
+}
+
+function reverseTransliterateWord(word: string): string {
+  let rest = word.toLowerCase();
+  let result = "";
+
+  while (rest.length > 0) {
+    const replacement = REVERSE_TRANSLIT_REPLACEMENTS.find(([cyrillic]) => rest.startsWith(cyrillic));
+    if (!replacement) {
+      result += rest[0];
+      rest = rest.slice(1);
+      continue;
+    }
+
+    const [cyrillic, latin] = replacement;
+    result += latin;
+    rest = rest.slice(cyrillic.length);
+  }
+
+  return result;
+}
+
 function confirmWithoutPreviousReviewCard(config: AppConfig): Record<string, unknown> {
   return {
     header: {
@@ -741,6 +1041,99 @@ function confirmWithoutPreviousReviewCard(config: AppConfig): Record<string, unk
               ]
             }
           }
+        ]
+      }
+    ]
+  };
+}
+
+function employeeLookupCard(
+  config: AppConfig,
+  selectedEmployee?: {
+    fullName: string;
+    email: string;
+    selectedEmployeeValue: string;
+  }
+): Record<string, unknown> {
+  return {
+    header: {
+      title: "Выбор сотрудника"
+    },
+    sections: [
+      {
+        widgets: [
+          {
+            selectionInput: {
+              name: "employeeFolder",
+              type: "MULTI_SELECT",
+              label: "Имя, фамилия или email",
+              multiSelectMaxSelectedItems: 1,
+              multiSelectMinQueryLength: 1,
+              ...(selectedEmployee
+                ? {
+                  items: [
+                    {
+                      text: `${selectedEmployee.fullName} (${selectedEmployee.email})`,
+                      value: selectedEmployee.selectedEmployeeValue,
+                      selected: true
+                    }
+                  ]
+                }
+                : {}),
+              onChangeAction: {
+                function: `${config.appBaseUrl}/google-chat/events`,
+                parameters: [
+                  {
+                    key: "actionName",
+                    value: SELECT_EMPLOYEE_FUNCTION
+                  }
+                ]
+              },
+              externalDataSource: {
+                function: `${config.appBaseUrl}/google-chat/events`
+              }
+            }
+          },
+          ...(selectedEmployee
+            ? [
+              {
+                textInput: {
+                  name: "manualFullName",
+                  label: "Имя и фамилия (название папки)",
+                  type: "SINGLE_LINE",
+                  value: selectedEmployee.fullName
+                }
+              },
+              {
+                textInput: {
+                  name: "employeeEmail",
+                  label: "Email",
+                  type: "SINGLE_LINE",
+                  value: selectedEmployee.email
+                }
+              },
+              {
+                buttonList: {
+                  buttons: [
+                    {
+                      text: "Проверить папку",
+                      onClick: {
+                        action: {
+                          function: `${config.appBaseUrl}/google-chat/events`,
+                          parameters: [
+                            {
+                              key: "actionName",
+                              value: CHECK_EMPLOYEE_FOLDER_FUNCTION
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+            : [])
         ]
       }
     ]

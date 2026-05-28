@@ -56,6 +56,7 @@ export type ChatEvent = {
       isDialogEvent?: boolean;
       dialogEventType?: string;
     };
+    widgetUpdatedPayload?: Record<string, unknown>;
   };
   message?: {
     slashCommand?: {

@@ -17,6 +17,11 @@ export type CreatedDriveFile = {
   webViewLink: string;
 };
 
+export type EmployeeFolder = {
+  id: string;
+  name: string;
+};
+
 export type ReviewFolderRequest = {
   fullName: string;
   employeeEmail: string;
@@ -28,16 +33,7 @@ export type ReviewFolderRequest = {
   previousReviewUrl?: string;
 };
 
-type DriveFilesResource = {
-  get(params: {
-    fileId: string;
-    fields: string;
-    supportsAllDrives: boolean;
-  }): Promise<{
-    data: {
-      mimeType?: string | null;
-    };
-  }>;
+type DriveListResource = {
   list(params: {
     q: string;
     fields: string;
@@ -51,6 +47,18 @@ type DriveFilesResource = {
         name?: string | null;
         webViewLink?: string | null;
       }>;
+    };
+  }>;
+};
+
+type DriveFilesResource = DriveListResource & {
+  get(params: {
+    fileId: string;
+    fields: string;
+    supportsAllDrives: boolean;
+  }): Promise<{
+    data: {
+      mimeType?: string | null;
     };
   }>;
   create(params: {
@@ -134,13 +142,39 @@ export async function findPreviousReviewReport(
   return findPreviousReviewReportInDrive(drive, config.reviewsRootFolderId, fullName, reviewMonth);
 }
 
+export async function listEmployeeFolders(
+  config: AppConfig,
+  refreshToken: string,
+  query: string
+): Promise<EmployeeFolder[]> {
+  const auth = createOAuthClient(config);
+  auth.setCredentials({ refresh_token: refreshToken });
+
+  const drive = google.drive({ version: "v3", auth });
+
+  return listEmployeeFoldersInDrive(drive.files, config.reviewsRootFolderId, query);
+}
+
+export async function findEmployeeFolder(
+  config: AppConfig,
+  refreshToken: string,
+  fullName: string
+): Promise<EmployeeFolder | null> {
+  const auth = createOAuthClient(config);
+  auth.setCredentials({ refresh_token: refreshToken });
+
+  const drive = google.drive({ version: "v3", auth });
+
+  return findEmployeeFolderInDrive(drive.files, config.reviewsRootFolderId, fullName);
+}
+
 export async function findPreviousReviewReportInDrive(
   drive: DriveResource,
   rootFolderId: string,
   fullName: string,
   reviewMonth: string
 ): Promise<CreatedDriveFile | null> {
-  const employeeFolder = await findEmployeeFolder(drive.files, rootFolderId, fullName);
+  const employeeFolder = await findEmployeeFolderInDrive(drive.files, rootFolderId, fullName);
   if (!employeeFolder?.id) {
     throw new Error(`Папка сотрудника не найдена: ${fullName}`);
   }
@@ -239,7 +273,7 @@ export async function createReviewFolderInDrive(
     throw new Error("REVIEWS_ROOT_FOLDER_ID is not a Google Drive folder");
   }
 
-  const employeeFolder = await findEmployeeFolder(files, request.rootFolderId, request.fullName);
+  const employeeFolder = await findEmployeeFolderInDrive(files, request.rootFolderId, request.fullName);
   if (!employeeFolder?.id) {
     throw new Error(`Папка сотрудника не найдена: ${request.fullName}`);
   }
@@ -305,12 +339,36 @@ export function normalizePersonName(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-async function findEmployeeFolder(
-  files: DriveFilesResource,
+export async function listEmployeeFoldersInDrive(
+  files: DriveListResource,
+  rootFolderId: string,
+  query: string
+): Promise<EmployeeFolder[]> {
+  const normalizedQuery = normalizePersonName(query);
+  const folders = await listRootEmployeeFolders(files, rootFolderId);
+
+  return folders.filter((folder) =>
+    normalizedQuery ? normalizePersonName(folder.name).includes(normalizedQuery) : true
+  );
+}
+
+export async function findEmployeeFolderInDrive(
+  files: DriveListResource,
   rootFolderId: string,
   fullName: string
-): Promise<{ id: string; name: string } | null> {
+): Promise<EmployeeFolder | null> {
   const normalizedFullName = normalizePersonName(fullName);
+  const folders = await listRootEmployeeFolders(files, rootFolderId);
+
+  return folders.find(
+    (folder) => normalizePersonName(folder.name) === normalizedFullName
+  ) ?? null;
+}
+
+async function listRootEmployeeFolders(
+  files: DriveListResource,
+  rootFolderId: string
+): Promise<EmployeeFolder[]> {
   const escapedRootFolderId = escapeDriveQueryValue(rootFolderId);
   const { data } = await files.list({
     q: `'${escapedRootFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
@@ -320,18 +378,12 @@ async function findEmployeeFolder(
     includeItemsFromAllDrives: true
   });
 
-  const folder = data.files?.find(
-    (file) => file.id && file.name && normalizePersonName(file.name) === normalizedFullName
-  );
-
-  if (!folder?.id || !folder.name) {
-    return null;
-  }
-
-  return {
-    id: folder.id,
-    name: folder.name
-  };
+  return (data.files ?? [])
+    .filter((file): file is { id: string; name: string } => Boolean(file.id && file.name))
+    .map((file) => ({
+      id: file.id,
+      name: file.name
+    }));
 }
 
 function escapeDriveQueryValue(value: string): string {

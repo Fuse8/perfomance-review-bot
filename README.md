@@ -17,6 +17,7 @@
 2. Включить API:
    - Google Chat API
    - Google Drive API
+   - Google People API
    - Firestore API
    - Google People/OAuth userinfo обычно доступен через OAuth2 API
 3. Создать OAuth Client ID типа Web application.
@@ -28,7 +29,9 @@ https://<cloud-run-url>/auth/google/callback
 
 5. Создать Firestore database в Native mode.
 6. Создать root-папку ревью в Google Drive и скопировать ее id.
-7. OAuth scope для MVP: `https://www.googleapis.com/auth/drive`. Более узкий `drive.file` не подходит для заранее созданной root-папки.
+7. OAuth scopes включают доступ к Drive, Calendar, Chat messages и Google Workspace directory. Более узкий `drive.file` не подходит для заранее созданной root-папки.
+
+После добавления или изменения OAuth scopes ревьюерам нужно заново пройти OAuth, чтобы refresh token получил новые права.
 
 ## Env
 
