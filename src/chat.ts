@@ -1,5 +1,9 @@
 import type { AppConfig } from "./config.js";
 import {
+  createCalendarEvent,
+  type CreatedCalendarEvent
+} from "./calendar.js";
+import {
   createReviewFolder,
   findPreviousReviewReport,
   type CreatedFolder
@@ -16,6 +20,7 @@ const HEALTH_COMMAND_ID = 2;
 
 type ChatEventHandlerDeps = {
   createReviewFolder: typeof createReviewFolder;
+  createCalendarEvent: typeof createCalendarEvent;
   findPreviousReviewReport: typeof findPreviousReviewReport;
   buildAuthUrl: typeof buildAuthUrl;
   sendChatMessage: typeof sendChatMessage;
@@ -23,6 +28,7 @@ type ChatEventHandlerDeps = {
 
 const defaultDeps: ChatEventHandlerDeps = {
   createReviewFolder,
+  createCalendarEvent,
   findPreviousReviewReport,
   buildAuthUrl,
   sendChatMessage
@@ -271,6 +277,7 @@ async function executeReviewCreation(
       employeeEmail: request.employeeEmail,
       reviewerEmail,
       reviewDate: request.reviewDate,
+      meetingTime: request.meetingTime,
       reviewMonth,
       needsClientForm: request.needsClientForm,
       previousReviewUrl
@@ -305,7 +312,56 @@ async function executeReviewCreation(
     hasLink: Boolean(folder.webViewLink)
   });
 
-  const successText = formatReviewSuccessMessage(folder, request.needsClientForm, previousReviewUrl);
+  let calendarEvent: CreatedCalendarEvent;
+  try {
+    calendarEvent = await deps.createCalendarEvent(config, refreshToken, {
+      fullName: request.fullName,
+      employeeEmail: request.employeeEmail,
+      reviewerEmail,
+      reviewDate: request.reviewDate,
+      meetingTime: request.meetingTime,
+      folderUrl: folder.webViewLink,
+      reportUrl: folder.report?.webViewLink,
+      internalFormUrl: folder.internalForm?.webViewLink,
+      clientFormUrl: folder.clientForm?.webViewLink,
+      previousReviewUrl
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    logChatEvent("submit.createCalendarEvent.failed", { message });
+    const errorText = [
+      "Не удалось создать встречу ревью.",
+      `Ошибка Google Calendar: ${message}`
+    ].join("\n");
+
+    if (isDialogSubmit) {
+      if (event.commonEventObject) {
+        return addOnTextResponse(errorText);
+      }
+      void sendSubmitResultToChat(config, deps, refreshToken, event, errorText);
+      return dialogActionStatusResponse(
+        "Не удалось выполнить /review. Ошибка отправлена в чат.",
+        "INVALID_ARGUMENT"
+      );
+    }
+
+    if (isAddOnEvent) {
+      return addOnTextResponse(errorText);
+    }
+
+    return actionResponseText(errorText);
+  }
+  logChatEvent("submit.createCalendarEvent.success", {
+    summary: calendarEvent.summary,
+    hasLink: Boolean(calendarEvent.htmlLink)
+  });
+
+  const successText = formatReviewSuccessMessage(
+    folder,
+    request.needsClientForm,
+    previousReviewUrl,
+    calendarEvent
+  );
 
   if (isDialogSubmit) {
     if (event.commonEventObject) {
@@ -381,6 +437,7 @@ function parseReviewRequest(
   const fullName = getStringInput(inputs.fullName).trim();
   const employeeEmail = getStringInput(inputs.employeeEmail).trim().toLowerCase();
   const reviewDate = getDateInput(inputs.reviewDate);
+  const meetingTime = getStringInput(inputs.meetingTime).trim();
   const needsClientForm = getStringInput(inputs.needsClientForm) === "yes";
 
   if (!fullName) {
@@ -409,12 +466,21 @@ function parseReviewRequest(
     return { ok: false, error: "Укажите дату ревью." };
   }
 
+  if (!meetingTime) {
+    return { ok: false, error: "Укажите время ревью." };
+  }
+
+  if (!isValidMeetingTime(meetingTime)) {
+    return { ok: false, error: "Укажите время ревью в формате HH:mm." };
+  }
+
   return {
     ok: true,
     value: {
       fullName,
       employeeEmail,
       reviewDate,
+      meetingTime,
       needsClientForm
     }
   };
@@ -460,7 +526,8 @@ function formatReviewMonth(date: string): string {
 function formatReviewSuccessMessage(
   folder: CreatedFolder,
   needsClientForm: boolean,
-  previousReviewUrl = ""
+  previousReviewUrl = "",
+  calendarEvent?: CreatedCalendarEvent
 ): string {
   return [
     `Создана папка ревью: ${folder.name}`,
@@ -472,12 +539,22 @@ function formatReviewSuccessMessage(
       : []),
     ...(needsClientForm && folder.clientForm?.webViewLink
       ? [`Client feedback form: ${folder.clientForm.webViewLink}`]
+      : []),
+    ...(calendarEvent
+      ? [
+        `Calendar event: ${calendarEvent.summary}`,
+        `Calendar link: ${calendarEvent.htmlLink}`
+      ]
       : [])
   ].join("\n");
 }
 
 function isEmailInDomains(email: string, domains: string[]): boolean {
   return domains.some((domain) => email.endsWith(`@${domain.toLowerCase()}`));
+}
+
+function isValidMeetingTime(value: string): boolean {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
 }
 
 async function sendSubmitResultToChat(
@@ -649,6 +726,12 @@ function reviewFormCard(config: AppConfig): Record<string, unknown> {
               name: "reviewDate",
               label: "Дата ревью",
               type: "DATE_ONLY"
+            }
+          },
+          {
+            textInput: {
+              name: "meetingTime",
+              label: "Время ревью (HH:mm, Екатеринбург)"
             }
           },
           {

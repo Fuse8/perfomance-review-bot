@@ -4,12 +4,13 @@ import { nanoid } from "nanoid";
 import type { AppConfig } from "./config.js";
 import type { TokenStorage } from "./storage.js";
 
-const SCOPES = [
+export const OAUTH_SCOPES = [
   "openid",
   "email",
   "profile",
   "https://www.googleapis.com/auth/drive",
   "https://www.googleapis.com/auth/documents",
+  "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/chat.messages.create"
 ];
 
@@ -38,7 +39,7 @@ export async function buildAuthUrl(
   return createOAuthClient(config).generateAuthUrl({
     access_type: "offline",
     prompt: "consent",
-    scope: SCOPES,
+    scope: OAUTH_SCOPES,
     state
   });
 }

@@ -42,6 +42,7 @@ const storage: TokenStorage = {
 
 function createHandler(overrides: Partial<{
   createReviewFolder: ChatEventHandlerDeps["createReviewFolder"];
+  createCalendarEvent: ChatEventHandlerDeps["createCalendarEvent"];
   findPreviousReviewReport: ChatEventHandlerDeps["findPreviousReviewReport"];
   sendChatMessage: ChatEventHandlerDeps["sendChatMessage"];
 }> = {}) {
@@ -53,12 +54,20 @@ function createHandler(overrides: Partial<{
         webViewLink: "https://docs.google.com/document/previous-report-id"
       };
     },
+    async createCalendarEvent() {
+      return {
+        id: "calendar-event-id",
+        summary: "Performance Review: Ivan Petrov",
+        htmlLink: "https://calendar.google.com/event?eid=calendar-event-id"
+      };
+    },
     ...overrides
   });
 }
 
 type ChatEventHandlerDeps = {
   createReviewFolder: typeof import("./drive.js").createReviewFolder;
+  createCalendarEvent: typeof import("./calendar.js").createCalendarEvent;
   findPreviousReviewReport: typeof import("./drive.js").findPreviousReviewReport;
   buildAuthUrl: typeof import("./oauth.js").buildAuthUrl;
   sendChatMessage: typeof import("./google-chat.js").sendChatMessage;
@@ -100,6 +109,7 @@ test("/review submit creates a test folder and returns its link", async () => {
         employeeEmail: "iaroslav.zaiarnyi@byteminds.co.uk",
         reviewerEmail: "reviewer@example.test",
         reviewDate: "2026-06-15",
+        meetingTime: "14:30",
         reviewMonth: "2026.06",
         needsClientForm: true,
         previousReviewUrl: "https://docs.google.com/document/previous-report-id"
@@ -125,6 +135,26 @@ test("/review submit creates a test folder and returns its link", async () => {
         }
       };
     },
+    async createCalendarEvent(_config, refreshToken, request) {
+      assert.equal(refreshToken, "refresh-token");
+      assert.deepEqual(request, {
+        fullName: "Ivan Petrov",
+        employeeEmail: "iaroslav.zaiarnyi@byteminds.co.uk",
+        reviewerEmail: "reviewer@example.test",
+        reviewDate: "2026-06-15",
+        meetingTime: "14:30",
+        folderUrl: "https://drive.google.com/folder",
+        reportUrl: "https://docs.google.com/document/report-id",
+        internalFormUrl: "https://docs.google.com/forms/internal-form-id",
+        clientFormUrl: "https://docs.google.com/forms/client-form-id",
+        previousReviewUrl: "https://docs.google.com/document/previous-report-id"
+      });
+      return {
+        id: "calendar-event-id",
+        summary: "Performance Review: Ivan Petrov",
+        htmlLink: "https://calendar.google.com/event?eid=calendar-event-id"
+      };
+    },
     async sendChatMessage(_config, refreshToken, spaceName, text) {
       sentMessages.push({ refreshToken, spaceName, text });
     }
@@ -140,6 +170,8 @@ test("/review submit creates a test folder and returns its link", async () => {
   assert.match(messageText, /Previous review: https:\/\/docs\.google\.com\/document\/previous-report-id/);
   assert.match(messageText, /Internal feedback form: https:\/\/docs\.google\.com\/forms\/internal-form-id/);
   assert.match(messageText, /Client feedback form: https:\/\/docs\.google\.com\/forms\/client-form-id/);
+  assert.match(messageText, /Calendar event: Performance Review: Ivan Petrov/);
+  assert.match(messageText, /Calendar link: https:\/\/calendar\.google\.com\/event\?eid=calendar-event-id/);
   assert.equal(statusText, "Готово. Отчёт отправлен в чат.");
   assert.deepEqual(response.actionResponse, {
     type: "DIALOG",
@@ -252,6 +284,23 @@ test("/review submit asks to configure employee email domain when it is missing"
   const text = getResponseText(response);
 
   assert.match(text, /Настройте EMPLOYEE_EMAIL_DOMAINS/);
+});
+
+test("/review submit validates meeting time", async () => {
+  const handleChatEvent = createHandler({
+    async createReviewFolder() {
+      throw new Error("should not create folder");
+    }
+  });
+
+  const response = await handleChatEvent(
+    config,
+    storage,
+    reviewSubmitEvent({ meetingTime: "" })
+  );
+  const text = getResponseText(response);
+
+  assert.match(text, /Укажите время ревью/);
 });
 
 test("/review submit includes only internal form link when client form is not needed", async () => {
@@ -401,6 +450,7 @@ test("/review submit continues without previous review after confirmation", asyn
         fullName: "Ivan Petrov",
         employeeEmail: "iaroslav.zaiarnyi@byteminds.co.uk",
         reviewDate: "2026-06-15",
+        meetingTime: "14:30",
         needsClientForm: true
       };
     }
@@ -480,6 +530,7 @@ function confirmWithoutPreviousEvent(
 function reviewSubmitEvent(
   overrides: {
     employeeEmail?: string;
+    meetingTime?: string;
     needsClientForm?: boolean;
     commonEventObject?: boolean;
   } = {}
@@ -513,6 +564,11 @@ function reviewSubmitEvent(
         reviewDate: {
           dateInput: {
             msSinceEpoch: String(Date.UTC(2026, 5, 15))
+          }
+        },
+        meetingTime: {
+          stringInputs: {
+            value: overrides.meetingTime === undefined ? ["14:30"] : [overrides.meetingTime]
           }
         },
         needsClientForm: {

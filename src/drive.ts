@@ -22,6 +22,7 @@ export type ReviewFolderRequest = {
   employeeEmail: string;
   reviewerEmail: string;
   reviewDate: string;
+  meetingTime: string;
   reviewMonth: string;
   needsClientForm: boolean;
   previousReviewUrl?: string;

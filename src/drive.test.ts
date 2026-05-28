@@ -119,6 +119,7 @@ test("createReviewFolderInDrive creates review month folder inside matched emplo
     employeeEmail: "ivan.petrov@example.test",
     reviewerEmail: "reviewer@example.test",
     reviewDate: "2026-06-15",
+    meetingTime: "14:30",
     reviewMonth: "2026.06",
     needsClientForm: true,
     previousReviewUrl: "https://docs.google.com/document/previous-report"
@@ -234,6 +235,7 @@ test("createReviewFolderInDrive creates only internal form when client form is n
     employeeEmail: "ivan.petrov@example.test",
     reviewerEmail: "reviewer@example.test",
     reviewDate: "2026-06-15",
+    meetingTime: "14:30",
     reviewMonth: "2026.06",
     needsClientForm: false
   });
@@ -265,6 +267,7 @@ test("createReviewFolderInDrive skips permission grant when employee is the revi
     employeeEmail: "dmitry.berdnikov@fuse8.online",
     reviewerEmail: "dmitry.berdnikov@fuse8.online",
     reviewDate: "2026-06-15",
+    meetingTime: "14:30",
     reviewMonth: "2026.06",
     needsClientForm: false
   });
@@ -307,6 +310,7 @@ test("createReviewFolderInDrive fails when employee folder is missing", async ()
         employeeEmail: "ivan.petrov@example.test",
         reviewerEmail: "reviewer@example.test",
         reviewDate: "2026-06-15",
+        meetingTime: "14:30",
         reviewMonth: "2026.06",
         needsClientForm: false
       }),

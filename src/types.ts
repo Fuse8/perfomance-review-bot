@@ -16,6 +16,7 @@ export type ReviewRequest = {
   fullName: string;
   employeeEmail: string;
   reviewDate: string;
+  meetingTime: string;
   needsClientForm: boolean;
 };
 
