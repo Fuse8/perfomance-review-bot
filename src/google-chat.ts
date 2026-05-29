@@ -6,6 +6,11 @@ const CHAT_BOT_SCOPE = "https://www.googleapis.com/auth/chat.bot";
 
 export function createChatBotAuth(config: AppConfig): GoogleAuth {
   return new GoogleAuth({
+    ...(config.chatServiceAccountCredentials
+      ? {
+        credentials: JSON.parse(config.chatServiceAccountCredentials)
+      }
+      : {}),
     ...(config.chatServiceAccountKeyFile
       ? { keyFile: config.chatServiceAccountKeyFile }
       : {}),

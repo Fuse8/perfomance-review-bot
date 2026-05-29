@@ -1,0 +1,33 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model ReviewerToken {
+  chatUserId      String   @id
+  googleUserEmail String
+  refreshToken    String
+  createdAt       DateTime
+}
+
+model OAuthState {
+  state     String   @id
+  chatUserId String
+  expiresAt DateTime
+  createdAt DateTime
+}
+
+model PendingReview {
+  chatUserId      String   @id
+  reviewMonth     String
+  createdAt       DateTime
+  fullName        String
+  employeeEmail   String
+  reviewDate      String
+  meetingTime     String
+  needsClientForm Boolean
+}

@@ -5,6 +5,7 @@ export type AppConfig = {
   googleRedirectUri: string;
   reviewsRootFolderId: string;
   chatServiceAccountKeyFile?: string;
+  chatServiceAccountCredentials?: string;
   reviewReportTemplateId: string;
   internalReviewFormTemplateId: string;
   clientReviewFormTemplateId: string;
@@ -13,8 +14,9 @@ export type AppConfig = {
   taskCheckDaysBefore: number;
   taskPrepareDaysBefore: number;
   taskReminderTime: string;
-  storageDriver: "firestore" | "local";
+  storageDriver: "firestore" | "local" | "prisma";
   localStoragePath: string;
+  databaseUrl?: string;
   port: number;
 };
 
@@ -27,7 +29,12 @@ function requiredEnv(name: string): string {
 }
 
 export function loadConfig(): AppConfig {
-  const storageDriver = process.env.STORAGE_DRIVER === "local" ? "local" : "firestore";
+  const storageDriver =
+    process.env.STORAGE_DRIVER === "local"
+      ? "local"
+      : process.env.STORAGE_DRIVER === "prisma"
+        ? "prisma"
+        : "firestore";
 
   return {
     appBaseUrl: requiredEnv("APP_BASE_URL").replace(/\/$/, ""),
@@ -36,6 +43,8 @@ export function loadConfig(): AppConfig {
     googleRedirectUri: requiredEnv("GOOGLE_REDIRECT_URI"),
     reviewsRootFolderId: requiredEnv("REVIEWS_ROOT_FOLDER_ID"),
     chatServiceAccountKeyFile: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE || undefined,
+    chatServiceAccountCredentials:
+      process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS || undefined,
     reviewReportTemplateId: process.env.REVIEW_REPORT_TEMPLATE_ID ?? "",
     internalReviewFormTemplateId: process.env.INTERNAL_REVIEW_FORM_TEMPLATE_ID ?? "",
     clientReviewFormTemplateId: process.env.CLIENT_REVIEW_FORM_TEMPLATE_ID ?? "",
@@ -48,6 +57,7 @@ export function loadConfig(): AppConfig {
     taskReminderTime: process.env.TASK_REMINDER_TIME ?? "12:00",
     storageDriver,
     localStoragePath: process.env.LOCAL_STORAGE_PATH ?? ".data/storage.json",
+    databaseUrl: process.env.DATABASE_URL || undefined,
     port: Number(process.env.PORT ?? 8080)
   };
 }

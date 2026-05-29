@@ -14,9 +14,13 @@
     "start": "node dist/server.js",
     "test": "pnpm build && node --test dist/**/*.test.js",
     "typecheck": "tsc --noEmit",
-    "deploy:cloud-run": "bash scripts/deploy-cloud-run.sh"
+    "deploy:cloud-run": "bash scripts/deploy-cloud-run.sh",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@prisma/client": "^6.8.2",
     "@google-cloud/firestore": "^7.11.0",
     "express": "^4.19.2",
     "google-auth-library": "^9.14.1",
@@ -26,6 +30,7 @@
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/node": "^22.10.1",
+    "prisma": "^6.8.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   },

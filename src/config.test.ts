@@ -104,3 +104,46 @@ test("loadConfig reads Google Chat service account key file", () => {
     process.env = previousEnv;
   }
 });
+
+test("loadConfig reads prisma storage driver and database url", () => {
+  const previousEnv = { ...process.env };
+
+  try {
+    process.env.APP_BASE_URL = "https://example.test";
+    process.env.GOOGLE_CLIENT_ID = "client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "client-secret";
+    process.env.GOOGLE_REDIRECT_URI = "https://example.test/auth/google/callback";
+    process.env.REVIEWS_ROOT_FOLDER_ID = "root-folder-id";
+    process.env.STORAGE_DRIVER = "prisma";
+    process.env.DATABASE_URL = "postgresql://user:pass@host/db";
+
+    const config = loadConfig();
+
+    assert.equal(config.storageDriver, "prisma");
+    assert.equal(config.databaseUrl, "postgresql://user:pass@host/db");
+  } finally {
+    process.env = previousEnv;
+  }
+});
+
+test("loadConfig reads Google service account credentials json", () => {
+  const previousEnv = { ...process.env };
+
+  try {
+    process.env.APP_BASE_URL = "https://example.test";
+    process.env.GOOGLE_CLIENT_ID = "client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "client-secret";
+    process.env.GOOGLE_REDIRECT_URI = "https://example.test/auth/google/callback";
+    process.env.REVIEWS_ROOT_FOLDER_ID = "root-folder-id";
+    process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS = '{"client_email":"bot@example.test"}';
+
+    const config = loadConfig();
+
+    assert.equal(
+      config.chatServiceAccountCredentials,
+      '{"client_email":"bot@example.test"}'
+    );
+  } finally {
+    process.env = previousEnv;
+  }
+});

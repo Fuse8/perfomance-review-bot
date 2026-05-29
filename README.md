@@ -6,10 +6,13 @@
 
 - Express webhook для Google Chat: `POST /google-chat/events`
 - OAuth ревьюера через Google
-- Firestore-хранилище refresh token
+- Хранилище refresh token:
+  - локально: `.data/storage.json`
+  - production: Firestore или Prisma/Neon
 - Создание папки в Google Drive через Drive API
 - Healthcheck: `GET /healthz`
 - Dockerfile для Cloud Run
+- Vercel entrypoint: `api/index.ts`
 
 ## Настройка Google Cloud
 
@@ -27,7 +30,7 @@
 https://<cloud-run-url>/auth/google/callback
 ```
 
-5. Создать Firestore database в Native mode.
+5. Если используете Firestore, создать Firestore database в Native mode.
 6. Создать root-папку ревью в Google Drive и скопировать ее id.
 7. OAuth scopes ревьюера включают доступ к Drive, Docs, Calendar и Google Workspace directory. Более узкий `drive.file` не подходит для заранее созданной root-папки.
 8. Финальные сообщения в Google Chat отправляются от имени бота через service account со scope `https://www.googleapis.com/auth/chat.bot`. В Cloud Run используйте attached service account / ADC. **Локально** без `GOOGLE_SERVICE_ACCOUNT_KEY_FILE` финальный отчёт в чат не уйдёт — см. [docs/local-google-chat-test.md](docs/local-google-chat-test.md).
@@ -39,12 +42,16 @@ https://<cloud-run-url>/auth/google/callback
 Скопировать `.env.example` и заполнить:
 
 ```text
-APP_BASE_URL=https://<cloud-run-url>
+APP_BASE_URL=https://<app-url>
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
-GOOGLE_REDIRECT_URI=https://<cloud-run-url>/auth/google/callback
+GOOGLE_REDIRECT_URI=https://<app-url>/auth/google/callback
 REVIEWS_ROOT_FOLDER_ID=...
+STORAGE_DRIVER=local
+LOCAL_STORAGE_PATH=.data/storage.json
+DATABASE_URL=
 GOOGLE_SERVICE_ACCOUNT_KEY_FILE=
+GOOGLE_SERVICE_ACCOUNT_CREDENTIALS=
 GOOGLE_CLOUD_PROJECT=...
 PORT=8080
 ```
@@ -57,6 +64,25 @@ pnpm dev:local
 ```
 
 Для локального теста Google Chat без billing см. [docs/local-google-chat-test.md](docs/local-google-chat-test.md).
+
+Локально оставляйте:
+
+```text
+STORAGE_DRIVER=local
+LOCAL_STORAGE_PATH=.data/storage.json
+```
+
+## Vercel + Neon
+
+Для Vercel используйте:
+
+```text
+STORAGE_DRIVER=prisma
+DATABASE_URL=postgresql://...
+GOOGLE_SERVICE_ACCOUNT_CREDENTIALS={"type":"service_account",...}
+```
+
+Подробно: [docs/vercel-neon-deploy.md](docs/vercel-neon-deploy.md).
 
 ## Cloud Run
 
