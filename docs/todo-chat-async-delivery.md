@@ -2,7 +2,7 @@
 
 ## Модель auth
 
-- **OAuth ревьюера** — Drive, Docs, Calendar, Directory.
+- **OAuth ревьюера** — Drive, Docs, Calendar, Directory, Forms (`forms.body`).
 - **Service account (`chat.bot`)** — только доставка сообщений в Chat.
 
 Локально: `GOOGLE_SERVICE_ACCOUNT_KEY_FILE=.data/service-account.json`. В Cloud Run — ADC / attached SA.
@@ -13,6 +13,8 @@
 - `spaceName` из `chat.space`, `appCommandPayload.space`, `buttonClickedPayload.space`, `widgetUpdatedPayload.space`.
 - OAuth recovery: `invalid_grant` / `Insufficient Permission` → удаление token + ссылка в чат.
 - `/check-auth` (Command ID 3).
+- Автопубликация скопированных Google Forms (`forms.setPublishSettings`).
+- Internal form: доступ респондентам по доменам из `EMPLOYEE_EMAIL_DOMAINS` (Drive `view: published`).
 
 ## Осталось
 

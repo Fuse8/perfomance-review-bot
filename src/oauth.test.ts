@@ -10,6 +10,10 @@ test("OAuth scopes include Google Workspace directory read access", () => {
   assert.ok(OAUTH_SCOPES.includes("https://www.googleapis.com/auth/directory.readonly"));
 });
 
+test("OAuth scopes include Google Forms body access", () => {
+  assert.ok(OAUTH_SCOPES.includes("https://www.googleapis.com/auth/forms.body"));
+});
+
 test("OAuth scopes do not include Google Chat message delivery access", () => {
   assert.ok(!OAUTH_SCOPES.includes("https://www.googleapis.com/auth/chat.messages.create"));
 });

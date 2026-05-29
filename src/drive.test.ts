@@ -5,9 +5,11 @@ import {
   findEmployeeFolderInDrive,
   findPreviousReviewReportInDrive,
   formatDriveStepError,
+  grantCompanyFormResponderAccess,
   isReviewMonthFolderName,
   listEmployeeFoldersInDrive,
   normalizePersonName,
+  publishCopiedGoogleForm,
   withDriveStep
 } from "./drive.js";
 
@@ -93,7 +95,14 @@ test("createReviewFolderInDrive creates review month folder inside matched emplo
   const createdParents: string[][] = [];
   const copiedFiles: Array<{ fileId: string; name?: string; parents?: string[] }> = [];
   const replacedTexts: Array<{ containsText?: string; replaceText?: string }> = [];
-  const permissions: Array<{ fileId: string; emailAddress?: string }> = [];
+  const permissions: Array<{
+    fileId: string;
+    emailAddress?: string;
+    domain?: string;
+    type?: string;
+    role?: string;
+    view?: string;
+  }> = [];
   const files = {
     async get() {
       return {
@@ -174,16 +183,38 @@ test("createReviewFolderInDrive creates review month folder inside matched emplo
     }
   };
   const permissionsResource = {
-    async create(params: { fileId: string; requestBody?: { emailAddress?: string } }) {
+    async create(params: {
+      fileId: string;
+      requestBody?: {
+        emailAddress?: string;
+        domain?: string;
+        type?: string;
+        role?: string;
+        view?: string;
+      };
+    }) {
       permissions.push({
         fileId: params.fileId,
-        emailAddress: params.requestBody?.emailAddress
+        emailAddress: params.requestBody?.emailAddress,
+        domain: params.requestBody?.domain,
+        type: params.requestBody?.type,
+        role: params.requestBody?.role,
+        view: params.requestBody?.view
       });
       return { data: {} };
     }
   };
+  const publishedFormIds: string[] = [];
+  const forms = {
+    async setPublishSettings(params: { formId: string }) {
+      publishedFormIds.push(params.formId);
+      return { data: {} };
+    }
+  };
 
-  const folder = await createReviewFolderInDrive({ files, permissions: permissionsResource, documents }, {
+  const folder = await createReviewFolderInDrive(
+    { files, permissions: permissionsResource, documents, forms },
+    {
     rootFolderId: "root-folder-id",
     reviewReportTemplateId: "report-template-id",
     internalReviewFormTemplateId: "internal-form-template-id",
@@ -195,7 +226,8 @@ test("createReviewFolderInDrive creates review month folder inside matched emplo
     meetingTime: "14:30",
     reviewMonth: "2026.06",
     needsClientForm: true,
-    previousReviewUrl: "https://docs.google.com/document/previous-report"
+    previousReviewUrl: "https://docs.google.com/document/previous-report",
+    internalFormResponderDomains: ["fuse8.online", "byteminds.co.uk"]
   });
 
   assert.equal(folder.name, "2026.06");
@@ -230,9 +262,85 @@ test("createReviewFolderInDrive creates review month folder inside matched emplo
   assert.deepEqual(permissions, [
     {
       fileId: "report-id",
-      emailAddress: "ivan.petrov@example.test"
+      emailAddress: "ivan.petrov@example.test",
+      type: "user",
+      role: "writer",
+      view: undefined,
+      domain: undefined
+    },
+    {
+      fileId: "internal-form-id",
+      emailAddress: undefined,
+      type: "domain",
+      role: "reader",
+      domain: "fuse8.online",
+      view: "published"
+    },
+    {
+      fileId: "internal-form-id",
+      emailAddress: undefined,
+      type: "domain",
+      role: "reader",
+      domain: "byteminds.co.uk",
+      view: "published"
     }
   ]);
+  assert.deepEqual(publishedFormIds, ["internal-form-id", "client-form-id"]);
+});
+
+test("grantCompanyFormResponderAccess adds published reader for each domain", async () => {
+  const permissions: Array<{ fileId: string; domain?: string; view?: string }> = [];
+  const drive = {
+    files: {} as never,
+    permissions: {
+      async create(params: {
+        fileId: string;
+        requestBody: { domain?: string; view?: string };
+      }) {
+        permissions.push({
+          fileId: params.fileId,
+          domain: params.requestBody.domain,
+          view: params.requestBody.view
+        });
+        return { data: {} };
+      }
+    }
+  };
+
+  await grantCompanyFormResponderAccess(
+    drive as Parameters<typeof grantCompanyFormResponderAccess>[0],
+    "form-123",
+    ["@Fuse8.Online", "fuse8.online", ""]
+  );
+
+  assert.deepEqual(permissions, [
+    { fileId: "form-123", domain: "fuse8.online", view: "published" }
+  ]);
+});
+
+test("publishCopiedGoogleForm sets published and accepting responses", async () => {
+  let requestBody: { publishSettings?: { publishState?: { isPublished?: boolean; isAcceptingResponses?: boolean } } } | undefined;
+  const forms = {
+    async setPublishSettings(params: {
+      formId: string;
+      requestBody: {
+        publishSettings: {
+          publishState: {
+            isPublished: boolean;
+            isAcceptingResponses: boolean;
+          };
+        };
+      };
+    }) {
+      requestBody = params.requestBody;
+      return { data: {} };
+    }
+  };
+
+  await publishCopiedGoogleForm(forms, "form-abc");
+
+  assert.equal(requestBody?.publishSettings?.publishState?.isPublished, true);
+  assert.equal(requestBody?.publishSettings?.publishState?.isAcceptingResponses, true);
 });
 
 test("createReviewFolderInDrive creates only internal form when client form is not needed", async () => {

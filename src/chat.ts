@@ -1404,7 +1404,7 @@ function reviewFormCard(
             buttonList: {
               buttons: [
                 {
-                  text: "Создать тестовую папку",
+                  text: "Создать папку",
                   onClick: {
                     action: {
                       function: `${config.appBaseUrl}/google-chat/events`,

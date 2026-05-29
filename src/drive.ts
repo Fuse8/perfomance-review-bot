@@ -1,3 +1,4 @@
+import type { OAuth2Client } from "google-auth-library";
 import { google } from "googleapis";
 import type { AppConfig } from "./config.js";
 import { createOAuthClient } from "./oauth.js";
@@ -31,6 +32,8 @@ export type ReviewFolderRequest = {
   reviewMonth: string;
   needsClientForm: boolean;
   previousReviewUrl?: string;
+  /** Google Workspace domains that may respond to the internal feedback form. */
+  internalFormResponderDomains?: string[];
 };
 
 type DriveListResource = {
@@ -93,23 +96,47 @@ type DriveFilesResource = DriveListResource & {
   }>;
 };
 
-type DrivePermissionsResource = {
-  create(params: {
-    fileId: string;
-    requestBody: {
+type DrivePermissionRequestBody =
+  | {
       type: "user";
       role: "writer";
       emailAddress: string;
+    }
+  | {
+      type: "domain";
+      role: "reader";
+      domain: string;
+      view: "published";
     };
+
+type DrivePermissionsResource = {
+  create(params: {
+    fileId: string;
+    requestBody: DrivePermissionRequestBody;
     fields: string;
     supportsAllDrives: boolean;
     sendNotificationEmail: boolean;
   }): Promise<unknown>;
 };
 
+type FormsPublishResource = {
+  setPublishSettings(params: {
+    formId: string;
+    requestBody: {
+      publishSettings: {
+        publishState: {
+          isPublished: boolean;
+          isAcceptingResponses: boolean;
+        };
+      };
+    };
+  }): Promise<unknown>;
+};
+
 type DriveResource = {
   files: DriveFilesResource;
   permissions?: DrivePermissionsResource;
+  forms?: FormsPublishResource;
   documents?: {
     batchUpdate(params: {
       documentId: string;
@@ -244,13 +271,17 @@ export async function createReviewFolder(
   const drive = google.drive({ version: "v3", auth });
   const docs = google.docs({ version: "v1", auth });
 
-  return createReviewFolderInDrive({ ...drive, documents: docs.documents }, {
-    rootFolderId: config.reviewsRootFolderId,
-    reviewReportTemplateId: config.reviewReportTemplateId,
-    internalReviewFormTemplateId: config.internalReviewFormTemplateId,
-    clientReviewFormTemplateId: config.clientReviewFormTemplateId,
-    ...request
-  });
+  return createReviewFolderInDrive(
+    { ...drive, documents: docs.documents, forms: createFormsPublishClient(auth) },
+    {
+      rootFolderId: config.reviewsRootFolderId,
+      reviewReportTemplateId: config.reviewReportTemplateId,
+      internalReviewFormTemplateId: config.internalReviewFormTemplateId,
+      clientReviewFormTemplateId: config.clientReviewFormTemplateId,
+      ...request,
+      internalFormResponderDomains: config.employeeEmailDomains
+    }
+  );
 }
 
 export async function createReviewFolderInDrive(
@@ -335,7 +366,8 @@ export async function createReviewFolderInDrive(
       drive,
       request.internalReviewFormTemplateId,
       `${request.fullName} // Internal Feedback Form // ${request.reviewDate.slice(0, 7)}`,
-      folder
+      folder,
+      { responderDomains: request.internalFormResponderDomains }
     )
   );
 
@@ -496,11 +528,16 @@ async function copyReportFromTemplate(
   };
 }
 
+type CopyFormFromTemplateOptions = {
+  responderDomains?: string[];
+};
+
 async function copyFormFromTemplate(
   drive: DriveResource,
   templateId: string,
   formName: string,
-  folder: CreatedDriveFile
+  folder: CreatedDriveFile,
+  options?: CopyFormFromTemplateOptions
 ): Promise<CreatedDriveFile> {
   const { data } = await drive.files.copy({
     fileId: templateId,
@@ -516,11 +553,79 @@ async function copyFormFromTemplate(
     throw new Error("Google Drive did not return copied form metadata");
   }
 
-  return {
+  const copiedForm = {
     id: data.id,
     name: data.name,
     webViewLink: data.webViewLink
   };
+
+  if (drive.forms) {
+    await publishCopiedGoogleForm(drive.forms, copiedForm.id);
+  }
+
+  if (options?.responderDomains?.length) {
+    await grantCompanyFormResponderAccess(drive, copiedForm.id, options.responderDomains);
+  }
+
+  return copiedForm;
+}
+
+export function createFormsPublishClient(auth: OAuth2Client): FormsPublishResource {
+  return {
+    async setPublishSettings(params) {
+      await auth.request({
+        url: `https://forms.googleapis.com/v1/forms/${encodeURIComponent(params.formId)}:setPublishSettings`,
+        method: "POST",
+        data: params.requestBody
+      });
+    }
+  };
+}
+
+export async function grantCompanyFormResponderAccess(
+  drive: DriveResource,
+  formId: string,
+  domains: string[]
+): Promise<void> {
+  const uniqueDomains = [
+    ...new Set(domains.map((domain) => domain.trim().replace(/^@/, "").toLowerCase()).filter(Boolean))
+  ];
+
+  for (const domain of uniqueDomains) {
+    await withDriveStep(`Доступ респондентов internal form для домена ${domain}`, async () => {
+      await drive.permissions?.create({
+        fileId: formId,
+        requestBody: {
+          type: "domain",
+          role: "reader",
+          domain,
+          view: "published"
+        },
+        fields: "id",
+        supportsAllDrives: true,
+        sendNotificationEmail: false
+      });
+    });
+  }
+}
+
+export async function publishCopiedGoogleForm(
+  forms: FormsPublishResource,
+  formId: string
+): Promise<void> {
+  await withDriveStep(`Публикация Google Form ${formId}`, async () => {
+    await forms.setPublishSettings({
+      formId,
+      requestBody: {
+        publishSettings: {
+          publishState: {
+            isPublished: true,
+            isAcceptingResponses: true
+          }
+        }
+      }
+    });
+  });
 }
 
 async function grantEmployeeWriterAccess(
