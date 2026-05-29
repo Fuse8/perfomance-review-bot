@@ -2,7 +2,8 @@
 
 Текущий runtime для Vercel:
 
-- HTTP handler: Vercel Node runtime
+- HTTP handler: `api/index.ts` (Node auto-detected; не задавайте `"runtime": "@vercel/node"` в `vercel.json` — невалидный формат)
+- маршрутизация: `vercel.json` → rewrite на `/api/index`
 - storage: `STORAGE_DRIVER=prisma`
 - БД: Neon/Postgres через Prisma
 - локальный dev остаётся на `STORAGE_DRIVER=local`
