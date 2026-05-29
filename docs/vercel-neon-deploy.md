@@ -69,13 +69,16 @@ STORAGE_DRIVER=prisma
 DATABASE_URL=postgresql://...
 ```
 
-4. Применить Prisma schema:
+4. Применить миграции к Neon (один раз локально или на каждом deploy через Vercel build):
 
 ```bash
-pnpm prisma:migrate:dev
+# локально, с DATABASE_URL из Neon в .env
+pnpm prisma:migrate:deploy
 ```
 
-Для production можно использовать `prisma migrate deploy`, если добавите миграции в репозиторий.
+В репозитории есть `prisma/migrations/` — при deploy Vercel выполняет `prisma migrate deploy`, если `DATABASE_URL` задан в env проекта (нужен для build).
+
+Ошибка `The table public.ReviewerToken does not exist` — миграции ещё не применены к этой БД.
 
 5. Перезапустить deploy в Vercel.
 

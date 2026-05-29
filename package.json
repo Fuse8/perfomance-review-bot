@@ -17,6 +17,7 @@
     "deploy:cloud-run": "bash scripts/deploy-cloud-run.sh",
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy",
     "postinstall": "prisma generate"
   },
   "dependencies": {
