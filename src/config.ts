@@ -28,13 +28,28 @@ function requiredEnv(name: string): string {
   return value;
 }
 
+export function resolveStorageDriver(): AppConfig["storageDriver"] {
+  const explicit = process.env.STORAGE_DRIVER?.trim().toLowerCase();
+  if (explicit === "local") {
+    return "local";
+  }
+  if (explicit === "prisma") {
+    return "prisma";
+  }
+  if (explicit === "firestore") {
+    return "firestore";
+  }
+
+  // Vercel has no Firestore ADC by default; avoid loading @google-cloud/firestore unless requested.
+  if (process.env.VERCEL) {
+    return process.env.DATABASE_URL ? "prisma" : "local";
+  }
+
+  return "firestore";
+}
+
 export function loadConfig(): AppConfig {
-  const storageDriver =
-    process.env.STORAGE_DRIVER === "local"
-      ? "local"
-      : process.env.STORAGE_DRIVER === "prisma"
-        ? "prisma"
-        : "firestore";
+  const storageDriver = resolveStorageDriver();
 
   return {
     appBaseUrl: requiredEnv("APP_BASE_URL").replace(/\/$/, ""),

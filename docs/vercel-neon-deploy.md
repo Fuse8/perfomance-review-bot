@@ -32,7 +32,11 @@ STORAGE_DRIVER=local
 LOCAL_STORAGE_PATH=.data/storage.json
 ```
 
-Для smoke deploy на Vercel `STORAGE_DRIVER=local` нужен только чтобы handler стартовал. Для реальной работы так оставлять нельзя: файловое хранилище на Vercel эфемерное.
+Если `STORAGE_DRIVER` не задан, на Vercel по умолчанию: `local` (без `DATABASE_URL`) или `prisma` (если `DATABASE_URL` задан). **Не используйте `firestore` на Vercel** — пакет не подходит для serverless.
+
+Для smoke deploy `STORAGE_DRIVER=local` нужен только чтобы handler стартовал. Для реальной работы так оставлять нельзя: файловое хранилище на Vercel эфемерное.
+
+Если `/healthz` отвечает `503` с `error`, в теле будет текст вроде `Missing required env var: ...` — добавьте переменные в Vercel → Settings → Environment Variables и redeploy.
 
 3. В Google OAuth client добавить redirect URI:
 

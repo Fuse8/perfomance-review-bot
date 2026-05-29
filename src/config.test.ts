@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { loadConfig } from "./config.js";
+import { loadConfig, resolveStorageDriver } from "./config.js";
 
 test("loadConfig allows missing EMPLOYEE_EMAIL_DOMAIN so the server can start", () => {
   const previousEnv = { ...process.env };
@@ -100,6 +100,34 @@ test("loadConfig reads Google Chat service account key file", () => {
     const config = loadConfig();
 
     assert.equal(config.chatServiceAccountKeyFile, ".data/service-account.json");
+  } finally {
+    process.env = previousEnv;
+  }
+});
+
+test("resolveStorageDriver defaults to local on Vercel without DATABASE_URL", () => {
+  const previousEnv = { ...process.env };
+
+  try {
+    process.env.VERCEL = "1";
+    delete process.env.STORAGE_DRIVER;
+    delete process.env.DATABASE_URL;
+
+    assert.equal(resolveStorageDriver(), "local");
+  } finally {
+    process.env = previousEnv;
+  }
+});
+
+test("resolveStorageDriver defaults to prisma on Vercel when DATABASE_URL is set", () => {
+  const previousEnv = { ...process.env };
+
+  try {
+    process.env.VERCEL = "1";
+    delete process.env.STORAGE_DRIVER;
+    process.env.DATABASE_URL = "postgresql://user:pass@host/db";
+
+    assert.equal(resolveStorageDriver(), "prisma");
   } finally {
     process.env = previousEnv;
   }
