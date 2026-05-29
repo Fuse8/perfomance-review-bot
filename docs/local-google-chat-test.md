@@ -1,93 +1,52 @@
-# Local Google Chat MVP test
+# Локальный тест Google Chat (без Cloud Run billing)
 
-Этот вариант не использует Cloud Run, Cloud Build, Artifact Registry и Firestore. Billing в Google Cloud не нужен.
+Нужны: Node 22, pnpm, HTTPS tunnel (`pnpm tunnel` / cloudflared), OAuth client, Drive root folder, SA key для Chat.
 
-## Что нужно
-
-- Node.js 22
-- pnpm
-- `cloudflared` или другой HTTPS tunnel
-- Google Cloud project для OAuth client и Drive API
-- Google Drive root-папка для тестовых папок
-
-## Настройка
-
-Создай `.env.local`:
-
-```bash
-cp .env.local.example .env.local
-```
-
-Заполни:
+## Env (`.env.local`)
 
 ```env
 STORAGE_DRIVER=local
 LOCAL_STORAGE_PATH=.data/storage.json
-APP_BASE_URL=https://your-tunnel-url.trycloudflare.com
-GOOGLE_REDIRECT_URI=https://your-tunnel-url.trycloudflare.com/auth/google/callback
+APP_BASE_URL=https://<tunnel-url>
+GOOGLE_REDIRECT_URI=https://<tunnel-url>/auth/google/callback
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 REVIEWS_ROOT_FOLDER_ID=...
+GOOGLE_SERVICE_ACCOUNT_KEY_FILE=.data/service-account.json
 PORT=8080
 ```
 
+Без `GOOGLE_SERVICE_ACCOUNT_KEY_FILE` Drive/Calendar создадутся, но сообщения в Chat от бота — нет.
+
 ## Запуск
 
-В первом терминале:
-
 ```bash
-pnpm dev:local
+pnpm dev:local    # терминал 1
+pnpm tunnel       # терминал 2 → скопировать HTTPS URL
 ```
 
-Во втором терминале:
+Обновить `APP_BASE_URL` и `GOOGLE_REDIRECT_URI` в `.env.local`, перезапустить `dev:local`.
 
-```bash
-pnpm tunnel
-```
+## Google Cloud / Chat app
 
-Скопируй HTTPS URL от `cloudflared`.
+- OAuth redirect: `https://<tunnel>/auth/google/callback`
+- Chat App URL: `https://<tunnel>/google-chat/events`
+- Команды: `/review` (1), `/ping` (2), `/check-auth` (3)
+- Chat API включён; SA key в `.data/service-account.json`; бот в space
 
-Обнови в `.env.local`:
-
-```env
-APP_BASE_URL=https://<tunnel-url>
-GOOGLE_REDIRECT_URI=https://<tunnel-url>/auth/google/callback
-```
-
-Перезапусти `pnpm dev:local`.
-
-## Google OAuth client
-
-В OAuth client добавь redirect URI:
+Ручной OAuth (пока нет `/auth`):
 
 ```text
-https://<tunnel-url>/auth/google/callback
+https://<tunnel>/auth/google/start?chatUserId=<chat_user_id>
 ```
 
-## Google Chat app
+## Чеклист
 
-В Google Chat API configuration поставь App URL:
+1. `/ping` → `hello world`
+2. `/check-auth` → отчёт по SA и OAuth
+3. `/review` → OAuth при необходимости → форма → submit
+4. В чате сразу: «Запустил подготовку PR…»; через ~20 с — финал (папка, calendar, reminders)
+5. Логи: `submit.workflow.start` → `submit.workflow.success` → `submit.sendChatMessage.success`
+6. Без OAuth: `/review` — сообщение со ссылкой в чат; при вводе имени — карточка auth + кнопка «Закрыть» (autocomplete не закрывает диалог сам)
 
-```text
-https://<tunnel-url>/google-chat/events
-```
-
-Slash command:
-
-```text
-/review, Command ID 1
-/ping, Command ID 2
-```
-
-## Проверка
-
-1. Открой Google Chat.
-2. Напиши боту `/ping` и проверь ответ `hello world`.
-3. Напиши боту `/review`.
-4. Заполни форму.
-5. Нажми “Подключить Google”.
-6. Пройди OAuth.
-7. Повтори `/review`.
-8. Проверь, что бот вернул ссылку на папку в Drive.
-
-Токены локально сохраняются в `.data/storage.json`.
+Токены: `.data/storage.json`.

@@ -17,6 +17,7 @@ type StorageData = {
 export interface TokenStorage {
   get(chatUserId: string): Promise<ReviewerToken | null>;
   save(token: ReviewerToken): Promise<void>;
+  delete(chatUserId: string): Promise<void>;
   saveOAuthState(state: OAuthState): Promise<void>;
   consumeOAuthState(state: string): Promise<OAuthState | null>;
   savePendingReview(request: PendingReviewRequest): Promise<void>;
@@ -46,6 +47,10 @@ class FirestoreTokenStorage implements TokenStorage {
     await this.firestore.collection(TOKENS_COLLECTION).doc(token.chatUserId).set(token, {
       merge: true
     });
+  }
+
+  async delete(chatUserId: string): Promise<void> {
+    await this.firestore.collection(TOKENS_COLLECTION).doc(chatUserId).delete();
   }
 
   async saveOAuthState(state: OAuthState): Promise<void> {
@@ -95,6 +100,12 @@ class LocalTokenStorage implements TokenStorage {
   async save(token: ReviewerToken): Promise<void> {
     const data = await this.read();
     data.tokens[token.chatUserId] = token;
+    await this.write(data);
+  }
+
+  async delete(chatUserId: string): Promise<void> {
+    const data = await this.read();
+    delete data.tokens[chatUserId];
     await this.write(data);
   }
 

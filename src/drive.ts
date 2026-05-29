@@ -263,37 +263,46 @@ export async function createReviewFolderInDrive(
   }
 ): Promise<CreatedFolder> {
   const { files } = drive;
-  const root = await files.get({
-    fileId: request.rootFolderId,
-    fields: "id,name,mimeType",
-    supportsAllDrives: true
+
+  await withDriveStep("Проверка доступа к корневой папке ревью", async () => {
+    const root = await files.get({
+      fileId: request.rootFolderId,
+      fields: "id,name,mimeType",
+      supportsAllDrives: true
+    });
+
+    if (root.data.mimeType !== "application/vnd.google-apps.folder") {
+      throw new Error("REVIEWS_ROOT_FOLDER_ID is not a Google Drive folder");
+    }
   });
 
-  if (root.data.mimeType !== "application/vnd.google-apps.folder") {
-    throw new Error("REVIEWS_ROOT_FOLDER_ID is not a Google Drive folder");
-  }
+  const employeeFolder = await withDriveStep(
+    `Поиск папки сотрудника "${request.fullName}"`,
+    async () => {
+      const folder = await findEmployeeFolderInDrive(files, request.rootFolderId, request.fullName);
+      if (!folder?.id) {
+        throw new Error(`Папка сотрудника не найдена: ${request.fullName}`);
+      }
+      return folder;
+    }
+  );
 
-  const employeeFolder = await findEmployeeFolderInDrive(files, request.rootFolderId, request.fullName);
-  if (!employeeFolder?.id) {
-    throw new Error(`Папка сотрудника не найдена: ${request.fullName}`);
-  }
-
-  const { data } = await files.create({
-    requestBody: {
-      name: request.reviewMonth,
-      mimeType: "application/vnd.google-apps.folder",
-      parents: [employeeFolder.id]
-    },
-    fields: "id,name,webViewLink",
-    supportsAllDrives: true
-  });
+  const { data } = await withDriveStep(
+    `Создание папки месяца ${request.reviewMonth} в "${request.fullName}"`,
+    async () =>
+      files.create({
+        requestBody: {
+          name: request.reviewMonth,
+          mimeType: "application/vnd.google-apps.folder",
+          parents: [employeeFolder.id]
+        },
+        fields: "id,name,webViewLink",
+        supportsAllDrives: true
+      })
+  );
 
   if (!data.id || !data.name || !data.webViewLink) {
     throw new Error("Google Drive did not return created folder metadata");
-  }
-
-  if (normalizeEmail(request.employeeEmail) !== normalizeEmail(request.reviewerEmail)) {
-    await grantEmployeeWriterAccess(drive, data.id, request.employeeEmail);
   }
 
   const folder = {
@@ -302,29 +311,50 @@ export async function createReviewFolderInDrive(
     webViewLink: data.webViewLink
   };
 
-  const report = await copyReportFromTemplate(
-    drive,
-    request,
-    folder,
-    request.previousReviewUrl ?? ""
+  await assertDriveFileAccessible(
+    files,
+    request.reviewReportTemplateId,
+    "Проверка доступа к шаблону PR report (REVIEW_REPORT_TEMPLATE_ID)"
   );
-  const internalForm = await copyFormFromTemplate(
-    drive,
+  const report = await withDriveStep("Копирование PR report из шаблона", async () =>
+    copyReportFromTemplate(
+      drive,
+      request,
+      folder,
+      request.previousReviewUrl ?? ""
+    )
+  );
+
+  await assertDriveFileAccessible(
+    files,
     request.internalReviewFormTemplateId,
-    `${request.fullName} // Internal Feedback Form // ${request.reviewDate.slice(0, 7)}`,
-    folder,
-    request.employeeEmail,
-    request.reviewerEmail
+    "Проверка доступа к шаблону internal form (INTERNAL_REVIEW_FORM_TEMPLATE_ID)"
   );
+  const internalForm = await withDriveStep("Копирование internal feedback form из шаблона", async () =>
+    copyFormFromTemplate(
+      drive,
+      request.internalReviewFormTemplateId,
+      `${request.fullName} // Internal Feedback Form // ${request.reviewDate.slice(0, 7)}`,
+      folder
+    )
+  );
+
   const clientForm = request.needsClientForm
-    ? await copyFormFromTemplate(
-        drive,
+    ? await (async () => {
+      await assertDriveFileAccessible(
+        files,
         request.clientReviewFormTemplateId,
-        `${request.fullName} // Client Feedback Form // ${request.reviewDate.slice(0, 7)}`,
-        folder,
-        request.employeeEmail,
-        request.reviewerEmail
-      )
+        "Проверка доступа к шаблону client form (CLIENT_REVIEW_FORM_TEMPLATE_ID)"
+      );
+      return withDriveStep("Копирование client feedback form из шаблона", async () =>
+        copyFormFromTemplate(
+          drive,
+          request.clientReviewFormTemplateId,
+          `${request.fullName} // Client Feedback Form // ${request.reviewDate.slice(0, 7)}`,
+          folder
+        )
+      );
+    })()
     : undefined;
 
   return {
@@ -394,6 +424,33 @@ function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
 }
 
+export async function withDriveStep<T>(step: string, action: () => Promise<T>): Promise<T> {
+  try {
+    return await action();
+  } catch (error) {
+    throw new Error(formatDriveStepError(step, error));
+  }
+}
+
+export function formatDriveStepError(step: string, error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return `${step}: ${message}`;
+}
+
+async function assertDriveFileAccessible(
+  files: DriveFilesResource,
+  fileId: string,
+  step: string
+): Promise<void> {
+  await withDriveStep(step, async () => {
+    await files.get({
+      fileId,
+      fields: "id,name,mimeType",
+      supportsAllDrives: true
+    });
+  });
+}
+
 async function copyReportFromTemplate(
   drive: DriveResource,
   request: ReviewFolderRequest & { reviewReportTemplateId: string },
@@ -428,6 +485,10 @@ async function copyReportFromTemplate(
     }
   });
 
+  if (normalizeEmail(request.employeeEmail) !== normalizeEmail(request.reviewerEmail)) {
+    await grantEmployeeWriterAccess(drive, data.id, request.employeeEmail);
+  }
+
   return {
     id: data.id,
     name: data.name,
@@ -439,9 +500,7 @@ async function copyFormFromTemplate(
   drive: DriveResource,
   templateId: string,
   formName: string,
-  folder: CreatedDriveFile,
-  employeeEmail: string,
-  reviewerEmail: string
+  folder: CreatedDriveFile
 ): Promise<CreatedDriveFile> {
   const { data } = await drive.files.copy({
     fileId: templateId,
@@ -457,10 +516,6 @@ async function copyFormFromTemplate(
     throw new Error("Google Drive did not return copied form metadata");
   }
 
-  if (normalizeEmail(employeeEmail) !== normalizeEmail(reviewerEmail)) {
-    await grantEmployeeWriterAccess(drive, data.id, employeeEmail);
-  }
-
   return {
     id: data.id,
     name: data.name,
@@ -473,17 +528,22 @@ async function grantEmployeeWriterAccess(
   fileId: string,
   employeeEmail: string
 ): Promise<void> {
-  await drive.permissions?.create({
-    fileId,
-    requestBody: {
-      type: "user",
-      role: "writer",
-      emailAddress: employeeEmail
-    },
-    fields: "id",
-    supportsAllDrives: true,
-    sendNotificationEmail: false
-  });
+  await withDriveStep(
+    `Выдача доступа на PR report сотруднику ${employeeEmail}`,
+    async () => {
+      await drive.permissions?.create({
+        fileId,
+        requestBody: {
+          type: "user",
+          role: "writer",
+          emailAddress: employeeEmail
+        },
+        fields: "id",
+        supportsAllDrives: true,
+        sendNotificationEmail: false
+      });
+    }
+  );
 }
 
 function replaceText(text: string, replaceTextValue: string) {

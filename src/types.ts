@@ -51,12 +51,22 @@ export type ChatEvent = {
         appCommandId?: number;
         appCommandType?: string;
       };
+      space?: {
+        name?: string;
+      };
     };
     buttonClickedPayload?: {
       isDialogEvent?: boolean;
       dialogEventType?: string;
+      space?: {
+        name?: string;
+      };
     };
-    widgetUpdatedPayload?: Record<string, unknown>;
+    widgetUpdatedPayload?: {
+      space?: {
+        name?: string;
+      };
+    };
   };
   message?: {
     slashCommand?: {

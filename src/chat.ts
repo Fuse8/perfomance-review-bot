@@ -11,7 +11,9 @@ import {
   findPreviousReviewReport,
   type CreatedFolder
 } from "./drive.js";
+import { buildAuthCheckReport } from "./chat-auth-check.js";
 import { sendChatMessage } from "./google-chat.js";
+import { formatAuthRequiredMessage, isOAuthAuthError } from "./oauth-errors.js";
 import { buildAuthUrl } from "./oauth.js";
 import { searchDirectoryEmployees } from "./people.js";
 import type { TokenStorage } from "./storage.js";
@@ -23,6 +25,26 @@ const CHECK_EMPLOYEE_FOLDER_FUNCTION = "checkEmployeeFolder";
 const CONFIRM_WITHOUT_PREVIOUS_FUNCTION = "confirmReviewWithoutPrevious";
 const REVIEW_COMMAND_ID = 1;
 const HEALTH_COMMAND_ID = 2;
+export const CHECK_AUTH_COMMAND_ID = 3;
+const REVIEW_WORKFLOW_ACK_MESSAGE = "Запустил подготовку PR. Результат пришлю сюда.";
+
+type ReviewWorkflowParams = {
+  config: AppConfig;
+  storage: TokenStorage;
+  chatUserId: string;
+  event: ChatEvent;
+  refreshToken: string;
+  reviewerEmail: string;
+  request: ReviewRequest;
+  reviewMonth: string;
+  previousReviewUrl: string;
+};
+
+type ReviewWorkflowResult = {
+  textLength: number;
+  remindersCount: number;
+  hasCalendar: boolean;
+};
 const EMPLOYEE_SEARCH_NO_RESULTS_VALUE = "__no_results__";
 const EMPLOYEE_SEARCH_NO_RESULTS_TEXT = "Сотрудник не найден";
 const EMPLOYEE_SEARCH_NO_RESULTS_HINT = "Попробуйте поиск по другому параметру или на английском языке";
@@ -79,6 +101,7 @@ type ChatEventHandlerDeps = {
   searchDirectoryEmployees: typeof searchDirectoryEmployees;
   buildAuthUrl: typeof buildAuthUrl;
   sendChatMessage: typeof sendChatMessage;
+  buildAuthCheckReport: typeof buildAuthCheckReport;
 };
 
 const defaultDeps: ChatEventHandlerDeps = {
@@ -89,7 +112,8 @@ const defaultDeps: ChatEventHandlerDeps = {
   findPreviousReviewReport,
   searchDirectoryEmployees,
   buildAuthUrl,
-  sendChatMessage
+  sendChatMessage,
+  buildAuthCheckReport
 };
 
 export function createChatEventHandler(deps: Partial<ChatEventHandlerDeps> = {}) {
@@ -112,7 +136,9 @@ export function createChatEventHandler(deps: Partial<ChatEventHandlerDeps> = {})
       hasChatUserId: Boolean(chatUserId),
       formInputKeys: Object.keys(formInputs),
       dialogEventType: event.chat?.buttonClickedPayload?.dialogEventType,
-      isDialogEvent: event.chat?.buttonClickedPayload?.isDialogEvent
+      isDialogEvent: event.chat?.buttonClickedPayload?.isDialogEvent,
+      hasCommonEventObject: Boolean(event.commonEventObject),
+      spaceName: resolveChatSpaceName(event)
     });
 
     if (event.chat?.widgetUpdatedPayload) {
@@ -123,6 +149,12 @@ export function createChatEventHandler(deps: Partial<ChatEventHandlerDeps> = {})
     if (appCommandId === HEALTH_COMMAND_ID) {
       logChatEvent("route.check");
       return addOnTextResponse("hello world");
+    }
+
+    if (appCommandId === CHECK_AUTH_COMMAND_ID) {
+      logChatEvent("route.checkAuth");
+      const report = await resolvedDeps.buildAuthCheckReport(config, storage, chatUserId);
+      return addOnTextResponse(report);
     }
 
     if (!chatUserId) {
@@ -152,6 +184,10 @@ export function createChatEventHandler(deps: Partial<ChatEventHandlerDeps> = {})
 
   if (appCommandId === REVIEW_COMMAND_ID) {
     logChatEvent("route.reviewDialog");
+    const token = await storage.get(chatUserId);
+    if (!token) {
+      return respondReviewerAuthRequired(config, storage, chatUserId, resolvedDeps, event, "addon_dialog");
+    }
     return addOnDialogResponse(employeeLookupCard(config));
   }
 
@@ -176,12 +212,27 @@ async function handleEmployeeSuggestions(
   const token = await storage.get(chatUserId);
   if (!token) {
     logChatEvent("employeeSuggestions.authRequired", { chatUserId });
-    return employeeSuggestionsResponse([]);
+    return respondReviewerAuthRequired(config, storage, chatUserId, deps, event, "employee_suggestions");
   }
 
   const rawQuery = event.commonEventObject?.parameters?.autocomplete_widget_query ?? "";
   const query = getDirectorySearchQuery(rawQuery);
-  const employees = await deps.searchDirectoryEmployees(config, token.refreshToken, query);
+  let employees: Array<{ fullName: string; email: string }>;
+  try {
+    employees = await deps.searchDirectoryEmployees(config, token.refreshToken, query);
+  } catch (error) {
+    if (isOAuthAuthError(error)) {
+      logChatEvent("employeeSuggestions.authFailed", {
+        chatUserId,
+        message: error instanceof Error ? error.message : String(error)
+      });
+      return respondReviewerAuthRequired(config, storage, chatUserId, deps, event, "employee_suggestions", {
+        clearStaleToken: true
+      });
+    }
+    throw error;
+  }
+
   logChatEvent("employeeSuggestions.result", {
     query: rawQuery,
     searchQuery: query,
@@ -228,6 +279,7 @@ async function handleEmployeeFolderCheck(
   const isDialogSubmit = event.chat?.buttonClickedPayload?.dialogEventType === "SUBMIT_DIALOG";
   const inputs = event.common?.formInputs ?? event.commonEventObject?.formInputs ?? {};
   const manualFullName = getStringInput(inputs.manualFullName).trim();
+  const employeeEmail = getStringInput(inputs.employeeEmail).trim().toLowerCase();
 
   if (!manualFullName) {
     return respondReviewMessage(
@@ -242,17 +294,24 @@ async function handleEmployeeFolderCheck(
   const token = await storage.get(chatUserId);
   if (!token) {
     logChatEvent("employeeCheck.authRequired", { chatUserId });
-    const authUrl = await deps.buildAuthUrl(config, storage, chatUserId);
-    return addOnTextResponse(
-      [
-        "Нужно подключить Google-аккаунт ревьюера.",
-        "Откройте ссылку, пройдите OAuth и повторите /review:",
-        authUrl
-      ].join("\n")
-    );
+    return respondReviewerAuthRequired(config, storage, chatUserId, deps, event, "addon_text");
   }
 
-  const folder = await deps.findEmployeeFolder(config, token.refreshToken, manualFullName);
+  let folder;
+  try {
+    folder = await deps.findEmployeeFolder(config, token.refreshToken, manualFullName);
+  } catch (error) {
+    if (isOAuthAuthError(error)) {
+      logChatEvent("employeeCheck.authFailed", {
+        chatUserId,
+        message: error instanceof Error ? error.message : String(error)
+      });
+      return respondReviewerAuthRequired(config, storage, chatUserId, deps, event, "addon_text", {
+        clearStaleToken: true
+      });
+    }
+    throw error;
+  }
   if (!folder) {
     return respondReviewMessage(
       isDialogSubmit,
@@ -263,12 +322,11 @@ async function handleEmployeeFolderCheck(
     );
   }
 
-  return respondReviewMessage(
-    isDialogSubmit,
-    isAddOnEvent,
-    event,
-    `Папка найдена: ${folder.name}`,
-    "OK"
+  return updateDialogCard(
+    reviewFormCard(config, {
+      fullName: manualFullName,
+      employeeEmail
+    })
   );
 }
 
@@ -329,17 +387,14 @@ async function handleReviewSubmit(
   const token = await storage.get(chatUserId);
   if (!token) {
     logChatEvent("submit.authRequired", { chatUserId });
-    const authUrl = await deps.buildAuthUrl(config, storage, chatUserId);
-    if (isAddOnEvent) {
-      return addOnTextResponse(
-        [
-          "Нужно подключить Google-аккаунт ревьюера.",
-          "Откройте ссылку, пройдите OAuth и повторите /review:",
-          authUrl
-        ].join("\n")
-      );
-    }
-    return actionResponseCard(authRequiredCard(authUrl));
+    return respondReviewerAuthRequired(
+      config,
+      storage,
+      chatUserId,
+      deps,
+      event,
+      isAddOnEvent ? "addon_text" : "dialog_card"
+    );
   }
 
   const month = formatReviewMonth(parsed.value.reviewDate);
@@ -375,6 +430,22 @@ async function handleReviewSubmit(
       );
     }
   } catch (error) {
+    if (isOAuthAuthError(error)) {
+      logChatEvent("submit.previousReview.authFailed", {
+        chatUserId,
+        message: error instanceof Error ? error.message : String(error)
+      });
+      return respondReviewerAuthRequired(
+        config,
+        storage,
+        chatUserId,
+        deps,
+        event,
+        isAddOnEvent ? "addon_text" : "dialog_card",
+        { clearStaleToken: true }
+      );
+    }
+
     const message = error instanceof Error ? error.message : "Unknown error";
     logChatEvent("submit.previousReview.failed", { message });
     const errorText = [
@@ -384,19 +455,20 @@ async function handleReviewSubmit(
     return respondReviewMessage(isDialogSubmit, isAddOnEvent, event, errorText, "INVALID_ARGUMENT");
   }
 
-  return executeReviewCreation(
-    config,
-    storage,
-    chatUserId,
-    event,
+  return startReviewWorkflowFromDialog(
+    {
+      config,
+      storage,
+      chatUserId,
+      event,
+      refreshToken: token.refreshToken,
+      reviewerEmail: token.googleUserEmail,
+      request: parsed.value,
+      reviewMonth: month,
+      previousReviewUrl
+    },
     deps,
-    token.refreshToken,
-    token.googleUserEmail,
-    parsed.value,
-    month,
-    previousReviewUrl,
-    isDialogSubmit,
-    isAddOnEvent
+    event
   );
 }
 
@@ -424,49 +496,80 @@ async function handleConfirmReviewWithoutPrevious(
   const token = await storage.get(chatUserId);
   if (!token) {
     logChatEvent("submit.authRequired", { chatUserId });
-    const authUrl = await deps.buildAuthUrl(config, storage, chatUserId);
-    if (isAddOnEvent) {
-      return addOnTextResponse(
-        [
-          "Нужно подключить Google-аккаунт ревьюера.",
-          "Откройте ссылку, пройдите OAuth и повторите /review:",
-          authUrl
-        ].join("\n")
-      );
-    }
-    return actionResponseCard(authRequiredCard(authUrl));
+    return respondReviewerAuthRequired(
+      config,
+      storage,
+      chatUserId,
+      deps,
+      event,
+      isAddOnEvent ? "addon_text" : "dialog_card"
+    );
   }
 
-  return executeReviewCreation(
-    config,
-    storage,
-    chatUserId,
-    event,
+  return startReviewWorkflowFromDialog(
+    {
+      config,
+      storage,
+      chatUserId,
+      event,
+      refreshToken: token.refreshToken,
+      reviewerEmail: token.googleUserEmail,
+      request: pending,
+      reviewMonth: pending.reviewMonth,
+      previousReviewUrl: ""
+    },
     deps,
-    token.refreshToken,
-    token.googleUserEmail,
-    pending,
-    pending.reviewMonth,
-    "",
-    isDialogSubmit,
-    isAddOnEvent
+    event
   );
 }
 
-async function executeReviewCreation(
-  config: AppConfig,
-  storage: TokenStorage,
-  chatUserId: string,
-  event: ChatEvent,
+function startReviewWorkflowFromDialog(
+  params: ReviewWorkflowParams,
   deps: ChatEventHandlerDeps,
-  refreshToken: string,
-  reviewerEmail: string,
-  request: ReviewRequest,
-  reviewMonth: string,
-  previousReviewUrl: string,
-  isDialogSubmit: boolean,
-  isAddOnEvent: boolean
-): Promise<Record<string, unknown>> {
+  event: ChatEvent
+): Record<string, unknown> {
+  void sendSubmitResultToChat(params.config, deps, event, REVIEW_WORKFLOW_ACK_MESSAGE);
+  scheduleReviewWorkflow(params, deps);
+  return respondDialogSubmitAck(event, "OK");
+}
+
+function scheduleReviewWorkflow(params: ReviewWorkflowParams, deps: ChatEventHandlerDeps): void {
+  logChatEvent("submit.workflow.start", {
+    fullName: params.request.fullName,
+    reviewMonth: params.reviewMonth,
+    spaceName: resolveChatSpaceName(params.event)
+  });
+
+  setImmediate(() => {
+    void runReviewWorkflow(params, deps)
+      .then((result) => {
+        logChatEvent("submit.workflow.success", {
+          spaceName: resolveChatSpaceName(params.event),
+          textLength: result.textLength,
+          remindersCount: result.remindersCount,
+          hasCalendar: result.hasCalendar
+        });
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        logChatEvent("submit.workflow.failed", { message });
+      });
+  });
+}
+
+async function runReviewWorkflow(
+  params: ReviewWorkflowParams,
+  deps: ChatEventHandlerDeps
+): Promise<ReviewWorkflowResult> {
+  const {
+    config,
+    event,
+    refreshToken,
+    reviewerEmail,
+    request,
+    reviewMonth,
+    previousReviewUrl
+  } = params;
   logChatEvent("submit.createFolder.start", {
     fullName: request.fullName,
     reviewMonth,
@@ -486,6 +589,11 @@ async function executeReviewCreation(
       previousReviewUrl
     });
   } catch (error) {
+    const authDelivered = await deliverWorkflowAuthRequired(error, params, deps, "createFolder");
+    if (authDelivered) {
+      return authDelivered;
+    }
+
     const message = error instanceof Error ? error.message : "Unknown error";
     logChatEvent("submit.createFolder.failed", { message });
     const errorText = [
@@ -493,22 +601,12 @@ async function executeReviewCreation(
       `Ошибка Google Drive: ${message}`
     ].join("\n");
 
-    if (isDialogSubmit) {
-      if (event.commonEventObject) {
-        return addOnTextResponse(errorText);
-      }
-      void sendSubmitResultToChat(config, deps, refreshToken, event, errorText);
-      return dialogActionStatusResponse(
-        "Не удалось выполнить /review. Ошибка отправлена в чат.",
-        "INVALID_ARGUMENT"
-      );
-    }
-
-    if (isAddOnEvent) {
-      return addOnTextResponse(errorText);
-    }
-
-    return actionResponseText(errorText);
+    await deliverWorkflowResultToChat(config, deps, event, errorText);
+    return {
+      textLength: errorText.length,
+      remindersCount: 0,
+      hasCalendar: false
+    };
   }
   logChatEvent("submit.createFolder.success", {
     folderName: folder.name,
@@ -531,6 +629,11 @@ async function executeReviewCreation(
   try {
     calendarEvent = await deps.createCalendarEvent(config, refreshToken, calendarRequest);
   } catch (error) {
+    const authDelivered = await deliverWorkflowAuthRequired(error, params, deps, "createCalendarEvent");
+    if (authDelivered) {
+      return authDelivered;
+    }
+
     const message = error instanceof Error ? error.message : "Unknown error";
     logChatEvent("submit.createCalendarEvent.failed", { message });
     const errorText = [
@@ -538,22 +641,12 @@ async function executeReviewCreation(
       `Ошибка Google Calendar: ${message}`
     ].join("\n");
 
-    if (isDialogSubmit) {
-      if (event.commonEventObject) {
-        return addOnTextResponse(errorText);
-      }
-      void sendSubmitResultToChat(config, deps, refreshToken, event, errorText);
-      return dialogActionStatusResponse(
-        "Не удалось выполнить /review. Ошибка отправлена в чат.",
-        "INVALID_ARGUMENT"
-      );
-    }
-
-    if (isAddOnEvent) {
-      return addOnTextResponse(errorText);
-    }
-
-    return actionResponseText(errorText);
+    await deliverWorkflowResultToChat(config, deps, event, errorText);
+    return {
+      textLength: errorText.length,
+      remindersCount: 0,
+      hasCalendar: false
+    };
   }
   logChatEvent("submit.createCalendarEvent.success", {
     summary: calendarEvent.summary,
@@ -564,6 +657,16 @@ async function executeReviewCreation(
   try {
     reminderEvents = await deps.createReviewerReminderEvents(config, refreshToken, calendarRequest);
   } catch (error) {
+    const authDelivered = await deliverWorkflowAuthRequired(
+      error,
+      params,
+      deps,
+      "createReviewerReminderEvents"
+    );
+    if (authDelivered) {
+      return authDelivered;
+    }
+
     const message = error instanceof Error ? error.message : "Unknown error";
     logChatEvent("submit.createReviewerReminderEvents.failed", { message });
     const errorText = [
@@ -571,22 +674,12 @@ async function executeReviewCreation(
       `Ошибка Google Calendar: ${message}`
     ].join("\n");
 
-    if (isDialogSubmit) {
-      if (event.commonEventObject) {
-        return addOnTextResponse(errorText);
-      }
-      void sendSubmitResultToChat(config, deps, refreshToken, event, errorText);
-      return dialogActionStatusResponse(
-        "Не удалось выполнить /review. Ошибка отправлена в чат.",
-        "INVALID_ARGUMENT"
-      );
-    }
-
-    if (isAddOnEvent) {
-      return addOnTextResponse(errorText);
-    }
-
-    return actionResponseText(errorText);
+    await deliverWorkflowResultToChat(config, deps, event, errorText);
+    return {
+      textLength: errorText.length,
+      remindersCount: 0,
+      hasCalendar: false
+    };
   }
   logChatEvent("submit.createReviewerReminderEvents.success", {
     count: reminderEvents.length
@@ -601,19 +694,12 @@ async function executeReviewCreation(
     reminderEvents
   );
 
-  if (isDialogSubmit) {
-    if (event.commonEventObject) {
-      return addOnTextResponse(successText);
-    }
-    void sendSubmitResultToChat(config, deps, refreshToken, event, successText);
-    return dialogActionStatusResponse("Готово. Отчёт отправлен в чат.", "OK");
-  }
-
-  if (isAddOnEvent) {
-    return addOnTextResponse(successText);
-  }
-
-  return actionResponseText(successText);
+  await deliverWorkflowResultToChat(config, deps, event, successText);
+  return {
+    textLength: successText.length,
+    remindersCount: reminderEvents.length,
+    hasCalendar: Boolean(calendarEvent)
+  };
 }
 
 function validateReviewConfig(config: AppConfig, request: ReviewRequest): string | null {
@@ -819,21 +905,141 @@ function isValidMeetingTime(value: string): boolean {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
 }
 
-async function sendSubmitResultToChat(
+function resolveChatSpaceName(event: ChatEvent): string | undefined {
+  return (
+    event.chat?.space?.name ??
+    event.chat?.appCommandPayload?.space?.name ??
+    event.chat?.buttonClickedPayload?.space?.name ??
+    event.chat?.widgetUpdatedPayload?.space?.name
+  );
+}
+
+function isAddOnDialogContext(event: ChatEvent): boolean {
+  const buttonPayload = event.chat?.buttonClickedPayload;
+  if (buttonPayload?.isDialogEvent || buttonPayload?.dialogEventType) {
+    return true;
+  }
+  return Boolean(event.chat?.widgetUpdatedPayload);
+}
+
+async function deliverWorkflowResultToChat(
   config: AppConfig,
   deps: ChatEventHandlerDeps,
-  refreshToken: string,
   event: ChatEvent,
   text: string
 ): Promise<void> {
-  const spaceName = event.chat?.space?.name;
+  await sendSubmitResultToChat(config, deps, event, text);
+}
+
+async function deliverWorkflowAuthRequired(
+  error: unknown,
+  params: ReviewWorkflowParams,
+  deps: ChatEventHandlerDeps,
+  step: string
+): Promise<ReviewWorkflowResult | null> {
+  if (!isOAuthAuthError(error)) {
+    return null;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  logChatEvent(`submit.${step}.authRequired`, {
+    chatUserId: params.chatUserId,
+    message
+  });
+
+  await params.storage.delete(params.chatUserId);
+  const authUrl = await deps.buildAuthUrl(params.config, params.storage, params.chatUserId);
+  const errorText = formatAuthRequiredMessage(authUrl);
+  await deliverWorkflowResultToChat(params.config, deps, params.event, errorText);
+
+  return {
+    textLength: errorText.length,
+    remindersCount: 0,
+    hasCalendar: false
+  };
+}
+
+type AuthRequiredResponseKind = "addon_text" | "dialog_card" | "addon_dialog" | "employee_suggestions";
+
+async function respondReviewerAuthRequired(
+  config: AppConfig,
+  storage: TokenStorage,
+  chatUserId: string,
+  deps: ChatEventHandlerDeps,
+  event: ChatEvent,
+  kind: AuthRequiredResponseKind,
+  options?: { clearStaleToken?: boolean }
+): Promise<Record<string, unknown>> {
+  if (options?.clearStaleToken) {
+    await storage.delete(chatUserId);
+  }
+
+  const authUrl = await deps.buildAuthUrl(config, storage, chatUserId);
+  logChatEvent("auth.required", {
+    chatUserId,
+    kind,
+    clearStaleToken: Boolean(options?.clearStaleToken)
+  });
+
+  const message = formatAuthRequiredMessage(authUrl);
+
+  if (kind === "dialog_card") {
+    return actionResponseCard(authRequiredCard(authUrl));
+  }
+
+  const spaceName = resolveChatSpaceName(event);
+  const inDialog = isAddOnDialogContext(event);
+
+  if (spaceName) {
+    await sendSubmitResultToChat(config, deps, event, message);
+    if (inDialog) {
+      return addOnCloseDialogResponse();
+    }
+    return {};
+  }
+
+  logChatEvent("auth.required.fallback", { chatUserId, reason: "missingSpaceName" });
+  return addOnTextResponse(message);
+}
+
+function respondDialogSubmitAck(
+  event: ChatEvent,
+  statusCode: "OK" | "INVALID_ARGUMENT"
+): Record<string, unknown> {
+  if (event.commonEventObject) {
+    return addOnCloseDialogResponse();
+  }
+  return dialogActionStatusResponse("", statusCode);
+}
+
+function addOnCloseDialogResponse(): Record<string, unknown> {
+  return {
+    action: {
+      navigations: [{ endNavigation: { action: "CLOSE_DIALOG" } }]
+    }
+  };
+}
+
+async function sendSubmitResultToChat(
+  config: AppConfig,
+  deps: ChatEventHandlerDeps,
+  event: ChatEvent,
+  text: string
+): Promise<void> {
+  const spaceName = resolveChatSpaceName(event);
   if (!spaceName) {
     logChatEvent("submit.sendChatMessage.skipped", { reason: "missingSpaceName" });
     return;
   }
 
+  logChatEvent("submit.resultDelivery.start", {
+    spaceName,
+    textLength: text.length,
+    delivery: "bot"
+  });
+
   try {
-    await deps.sendChatMessage(config, refreshToken, spaceName, text);
+    await deps.sendChatMessage(config, spaceName, text);
     logChatEvent("submit.sendChatMessage.success", { spaceName });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -1140,7 +1346,13 @@ function employeeLookupCard(
   };
 }
 
-function reviewFormCard(config: AppConfig): Record<string, unknown> {
+function reviewFormCard(
+  config: AppConfig,
+  initialValues: {
+    fullName?: string;
+    employeeEmail?: string;
+  } = {}
+): Record<string, unknown> {
   return {
     header: {
       title: "Запуск Performance Review"
@@ -1151,13 +1363,15 @@ function reviewFormCard(config: AppConfig): Record<string, unknown> {
           {
             textInput: {
               name: "fullName",
-              label: "Имя и фамилия"
+              label: "Имя и фамилия",
+              ...(initialValues.fullName ? { value: initialValues.fullName } : {})
             }
           },
           {
             textInput: {
               name: "employeeEmail",
-              label: "Email сотрудника"
+              label: "Email сотрудника",
+              ...(initialValues.employeeEmail ? { value: initialValues.employeeEmail } : {})
             }
           },
           {

@@ -4,9 +4,11 @@ import {
   createReviewFolderInDrive,
   findEmployeeFolderInDrive,
   findPreviousReviewReportInDrive,
+  formatDriveStepError,
   isReviewMonthFolderName,
   listEmployeeFoldersInDrive,
-  normalizePersonName
+  normalizePersonName,
+  withDriveStep
 } from "./drive.js";
 
 test("isReviewMonthFolderName matches YYYY.MM folders", () => {
@@ -16,6 +18,26 @@ test("isReviewMonthFolderName matches YYYY.MM folders", () => {
 
 test("normalizePersonName trims, lowercases and collapses spaces", () => {
   assert.equal(normalizePersonName("  Ivan   PETROV  "), "ivan petrov");
+});
+
+test("formatDriveStepError includes the failing Drive step", () => {
+  assert.equal(
+    formatDriveStepError(
+      "Проверка доступа к шаблону PR report (REVIEW_REPORT_TEMPLATE_ID)",
+      new Error("The user does not have sufficient permissions for this file.")
+    ),
+    "Проверка доступа к шаблону PR report (REVIEW_REPORT_TEMPLATE_ID): The user does not have sufficient permissions for this file."
+  );
+});
+
+test("withDriveStep rethrows errors with step context", async () => {
+  await assert.rejects(
+    () =>
+      withDriveStep("Копирование PR report из шаблона", async () => {
+        throw new Error("The user does not have sufficient permissions for this file.");
+      }),
+    /Копирование PR report из шаблона: The user does not have sufficient permissions for this file\./
+  );
 });
 
 test("listEmployeeFoldersInDrive returns matching employee folders", async () => {
@@ -207,15 +229,7 @@ test("createReviewFolderInDrive creates review month folder inside matched emplo
   ]);
   assert.deepEqual(permissions, [
     {
-      fileId: "month-folder-id",
-      emailAddress: "ivan.petrov@example.test"
-    },
-    {
-      fileId: "internal-form-id",
-      emailAddress: "ivan.petrov@example.test"
-    },
-    {
-      fileId: "client-form-id",
+      fileId: "report-id",
       emailAddress: "ivan.petrov@example.test"
     }
   ]);
@@ -365,7 +379,7 @@ test("createReviewFolderInDrive fails when employee folder is missing", async ()
         reviewMonth: "2026.06",
         needsClientForm: false
       }),
-    /Папка сотрудника не найдена: Ivan Petrov/
+    /Поиск папки сотрудника "Ivan Petrov": Папка сотрудника не найдена: Ivan Petrov/
   );
 });
 

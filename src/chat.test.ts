@@ -11,6 +11,7 @@ const config: AppConfig = {
   googleClientSecret: "client-secret",
   googleRedirectUri: "https://example.test/auth/google/callback",
   reviewsRootFolderId: "root-folder-id",
+  chatServiceAccountKeyFile: undefined,
   reviewReportTemplateId: "report-template-id",
   internalReviewFormTemplateId: "internal-form-template-id",
   clientReviewFormTemplateId: "client-form-template-id",
@@ -24,6 +25,13 @@ const config: AppConfig = {
   port: 8080
 };
 
+const REVIEW_WORKFLOW_ACK_MESSAGE = "Запустил подготовку PR. Результат пришлю сюда.";
+
+async function flushBackgroundTasks(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
 const storage: TokenStorage = {
   async get() {
     return {
@@ -34,6 +42,7 @@ const storage: TokenStorage = {
     };
   },
   async save() {},
+  async delete() {},
   async saveOAuthState() {},
   async consumeOAuthState() {
     return null;
@@ -44,15 +53,7 @@ const storage: TokenStorage = {
   }
 };
 
-function createHandler(overrides: Partial<{
-  createReviewFolder: ChatEventHandlerDeps["createReviewFolder"];
-  createCalendarEvent: ChatEventHandlerDeps["createCalendarEvent"];
-  createReviewerReminderEvents: ChatEventHandlerDeps["createReviewerReminderEvents"];
-  findPreviousReviewReport: ChatEventHandlerDeps["findPreviousReviewReport"];
-  findEmployeeFolder: ChatEventHandlerDeps["findEmployeeFolder"];
-  searchDirectoryEmployees: ChatEventHandlerDeps["searchDirectoryEmployees"];
-  sendChatMessage: ChatEventHandlerDeps["sendChatMessage"];
-}> = {}) {
+function createHandler(overrides: Partial<ChatEventHandlerDeps> = {}) {
   return createChatEventHandler({
     async findPreviousReviewReport() {
       return {
@@ -132,6 +133,31 @@ test("/check returns smoke-test response", async () => {
   });
 });
 
+test("/check-auth returns auth diagnostics report", async () => {
+  const handleChatEvent = createChatEventHandler({
+    async buildAuthCheckReport() {
+      return "Auth check (/check-auth)\n\n- Chat token probe: OK";
+    }
+  });
+
+  const response = await handleChatEvent(config, storage, {
+    user: {
+      name: "users/123"
+    },
+    chat: {
+      appCommandPayload: {
+        appCommandMetadata: {
+          appCommandId: 3
+        }
+      }
+    }
+  });
+
+  const text = getResponseText(response);
+  assert.match(text, /Auth check/);
+  assert.match(text, /Chat token probe: OK/);
+});
+
 test("/review opens employee lookup card", async () => {
   const handleChatEvent = createChatEventHandler();
 
@@ -174,6 +200,194 @@ test("/review opens employee lookup card", async () => {
     }
   });
   assert.equal(widgets.length, 1);
+});
+
+test("/review sends auth message without closing dialog when reviewer token is missing", async () => {
+  const emptyStorage: TokenStorage = {
+    ...storage,
+    async get() {
+      return null;
+    }
+  };
+  const sentMessages: string[] = [];
+  const handleChatEvent = createChatEventHandler({
+    async buildAuthUrl() {
+      return "https://example.test/auth/start";
+    },
+    async sendChatMessage(_config, spaceName, text) {
+      assert.equal(spaceName, "spaces/AAA");
+      sentMessages.push(text);
+    }
+  });
+
+  const response = await handleChatEvent(config, emptyStorage, reviewCommandEvent());
+
+  assert.deepEqual(response, {});
+  assert.match(sentMessages[0] ?? "", /https:\/\/example\.test\/auth\/start/);
+  assert.match(sentMessages[0] ?? "", /подключить Google-аккаунт ревьюера/i);
+});
+
+test("resolveChatSpaceName reads space from appCommandPayload", async () => {
+  const emptyStorage: TokenStorage = {
+    ...storage,
+    async get() {
+      return null;
+    }
+  };
+  const sentSpaces: string[] = [];
+  const handleChatEvent = createChatEventHandler({
+    async buildAuthUrl() {
+      return "https://example.test/oauth";
+    },
+    async sendChatMessage(_config, spaceName) {
+      sentSpaces.push(spaceName);
+    }
+  });
+
+  await handleChatEvent(config, emptyStorage, {
+    user: { name: "users/123" },
+    chat: {
+      appCommandPayload: {
+        appCommandMetadata: { appCommandId: 1 },
+        space: { name: "spaces/from-command" }
+      }
+    },
+    commonEventObject: {}
+  });
+
+  assert.deepEqual(sentSpaces, ["spaces/from-command"]);
+});
+
+test("/review employee suggestions close dialog and send auth message when token is missing", async () => {
+  const emptyStorage: TokenStorage = {
+    ...storage,
+    async get() {
+      return null;
+    }
+  };
+  const sentMessages: string[] = [];
+  const handleChatEvent = createHandler({
+    async buildAuthUrl() {
+      return "https://example.test/oauth";
+    },
+    async sendChatMessage(_config, _spaceName, text) {
+      sentMessages.push(text);
+    }
+  });
+
+  const response = await handleChatEvent(
+    config,
+    emptyStorage,
+    employeeSuggestionsEvent("ivan", { spaceName: "spaces/AAA" })
+  );
+
+  const action = response.action as {
+    navigations?: Array<{ endNavigation?: { action?: string } }>;
+  };
+  assert.equal(action.navigations?.[0]?.endNavigation?.action, "CLOSE_DIALOG");
+  assert.match(sentMessages[0] ?? "", /https:\/\/example\.test\/oauth/);
+});
+
+test("/review employee suggestions close dialog and send auth message on invalid_grant", async () => {
+  let deleted = false;
+  const trackingStorage: TokenStorage = {
+    ...storage,
+    async delete(chatUserId) {
+      deleted = true;
+      assert.equal(chatUserId, "users/123");
+    }
+  };
+  const sentMessages: string[] = [];
+  const handleChatEvent = createHandler({
+    async searchDirectoryEmployees() {
+      throw new Error('{"error":"invalid_grant","error_description":"Token has been expired or revoked."}');
+    },
+    async buildAuthUrl() {
+      return "https://example.test/oauth";
+    },
+    async sendChatMessage(_config, _spaceName, text) {
+      sentMessages.push(text);
+    }
+  });
+
+  const response = await handleChatEvent(
+    config,
+    trackingStorage,
+    employeeSuggestionsEvent("ivan", { spaceName: "spaces/AAA" })
+  );
+
+  assert.equal(deleted, true);
+  const action = response.action as {
+    navigations?: Array<{ endNavigation?: { action?: string } }>;
+  };
+  assert.equal(action.navigations?.[0]?.endNavigation?.action, "CLOSE_DIALOG");
+  assert.match(sentMessages[0] ?? "", /https:\/\/example\.test\/oauth/);
+});
+
+test("/review submit sends auth link to chat when workflow fails with invalid_grant", async () => {
+  let deleted = false;
+  const trackingStorage: TokenStorage = {
+    ...storage,
+    async delete() {
+      deleted = true;
+    }
+  };
+  const sentMessages: string[] = [];
+  const handleChatEvent = createHandler({
+    async createReviewFolder() {
+      throw new Error("invalid_grant");
+    },
+    async buildAuthUrl() {
+      return "https://example.test/oauth";
+    },
+    async sendChatMessage(_config, _spaceName, text) {
+      sentMessages.push(text);
+    }
+  });
+
+  await handleChatEvent(config, trackingStorage, reviewSubmitEvent());
+  await flushBackgroundTasks();
+
+  assert.equal(deleted, true);
+  assert.equal(sentMessages.length, 2);
+  assert.match(sentMessages[1] ?? "", /https:\/\/example\.test\/oauth/);
+  assert.match(sentMessages[1] ?? "", /подключить Google-аккаунт ревьюера/i);
+});
+
+test("/review submit closes dialog and sends auth message when previous review lookup fails with invalid_grant", async () => {
+  let deleted = false;
+  const trackingStorage: TokenStorage = {
+    ...storage,
+    async delete() {
+      deleted = true;
+    }
+  };
+  const sentMessages: string[] = [];
+  const handleChatEvent = createHandler({
+    async findPreviousReviewReport() {
+      throw new Error("invalid_grant");
+    },
+    async buildAuthUrl() {
+      return "https://example.test/oauth";
+    },
+    async sendChatMessage(_config, _spaceName, text) {
+      sentMessages.push(text);
+    }
+  });
+
+  const response = await handleChatEvent(
+    config,
+    trackingStorage,
+    reviewSubmitEvent({ commonEventObject: true })
+  );
+
+  assert.equal(deleted, true);
+  const action = response.action as {
+    navigations?: Array<{ endNavigation?: { action?: string } }>;
+  };
+  assert.equal(action.navigations?.[0]?.endNavigation?.action, "CLOSE_DIALOG");
+  assert.match(sentMessages[0] ?? "", /https:\/\/example\.test\/oauth/);
+  assert.match(sentMessages[0] ?? "", /подключить Google-аккаунт ревьюера/i);
 });
 
 test("/review employee suggestions return matching directory employees", async () => {
@@ -408,7 +622,7 @@ test("/review employee selection keeps directory English name in full name input
   });
 });
 
-test("/review employee check verifies selected directory employee against Drive folder", async () => {
+test("/review employee check opens review form when Drive folder exists", async () => {
   const handleChatEvent = createHandler({
     async findEmployeeFolder(_config, refreshToken, fullName) {
       assert.equal(refreshToken, "refresh-token");
@@ -423,7 +637,24 @@ test("/review employee check verifies selected directory employee against Drive 
     employeeCheckEvent({ manualFullName: "Ivan Petrov" })
   );
 
-  assert.match(getResponseText(response), /Папка найдена: Ivan Petrov/);
+  const card = getUpdatedCard(response);
+  const widgets = card.sections?.[0]?.widgets ?? [];
+
+  assert.equal(card.header?.title, "Запуск Performance Review");
+  assert.deepEqual(widgets[0], {
+    textInput: {
+      name: "fullName",
+      label: "Имя и фамилия",
+      value: "Ivan Petrov"
+    }
+  });
+  assert.deepEqual(widgets[1], {
+    textInput: {
+      name: "employeeEmail",
+      label: "Email сотрудника",
+      value: "iaroslav.zaiarnyi@byteminds.co.uk"
+    }
+  });
 });
 
 test("/review employee check returns clear text when selected directory employee has no Drive folder", async () => {
@@ -457,11 +688,13 @@ test("/review employee check validates manual full name against Drive folder", a
     employeeCheckEvent({ manualFullName: "Ivan Petrov" })
   );
 
-  assert.match(getResponseText(response), /Папка найдена: Ivan Petrov/);
+  const card = getUpdatedCard(response);
+
+  assert.equal(card.header?.title, "Запуск Performance Review");
 });
 
 test("/review submit creates a test folder and returns its link", async () => {
-  const sentMessages: Array<{ refreshToken: string; spaceName: string; text: string }> = [];
+  const sentMessages: Array<{ spaceName: string; text: string }> = [];
   const handleChatEvent = createHandler({
     async createReviewFolder(_config, refreshToken, request) {
       assert.equal(refreshToken, "refresh-token");
@@ -552,14 +785,19 @@ test("/review submit creates a test folder and returns its link", async () => {
         }
       ];
     },
-    async sendChatMessage(_config, refreshToken, spaceName, text) {
-      sentMessages.push({ refreshToken, spaceName, text });
+    async sendChatMessage(_config, spaceName, text) {
+      sentMessages.push({ spaceName, text });
     }
   });
 
   const response = await handleChatEvent(config, storage, reviewSubmitEvent());
-  const statusText = getResponseText(response);
-  const messageText = sentMessages[0]?.text ?? "";
+
+  await flushBackgroundTasks();
+
+  assert.equal(sentMessages.length, 2);
+  assert.equal(sentMessages[0]?.text, REVIEW_WORKFLOW_ACK_MESSAGE);
+
+  const messageText = sentMessages[1]?.text ?? "";
 
   assert.match(messageText, /Готово: Performance Review для Ivan Petrov/);
   assert.match(messageText, /Папка ревью: 2026\.06 - https:\/\/drive\.google\.com\/folder/);
@@ -572,60 +810,116 @@ test("/review submit creates a test folder and returns its link", async () => {
   assert.match(messageText, /Запустить сбор отзывов для PR Ivan Petrov - 2026-05-26T12:00:00\+05:00 - https:\/\/calendar\.google\.com\/event\?eid=collect-reminder-id/);
   assert.match(messageText, /Проверить отзывы для PR Ivan Petrov - 2026-06-04T12:00:00\+05:00 - https:\/\/calendar\.google\.com\/event\?eid=check-reminder-id/);
   assert.match(messageText, /Подготовиться к проведению PR Ivan Petrov - 2026-06-10T12:00:00\+05:00 - https:\/\/calendar\.google\.com\/event\?eid=prepare-reminder-id/);
-  assert.equal(statusText, "Готово. Отчёт отправлен в чат.");
   assert.deepEqual(response.actionResponse, {
     type: "DIALOG",
     dialogAction: {
       actionStatus: {
         statusCode: "OK",
-        userFacingMessage: "Готово. Отчёт отправлен в чат."
+        userFacingMessage: ""
       }
     }
   });
   assert.deepEqual(sentMessages, [
     {
-      refreshToken: "refresh-token",
+      spaceName: "spaces/AAA",
+      text: REVIEW_WORKFLOW_ACK_MESSAGE
+    },
+    {
       spaceName: "spaces/AAA",
       text: messageText
     }
   ]);
 });
 
-test("/review submit does not wait for Chat API message delivery", async () => {
-  let resolveSend!: () => void;
-  let responsePromise!: Promise<Record<string, unknown>>;
-  const sendStarted = new Promise<void>((resolve) => {
-    const handleChatEvent = createHandler({
-      async createReviewFolder() {
-        return {
-          id: "folder-id",
-          name: "2026.06",
-          webViewLink: "https://drive.google.com/folder"
-        };
-      },
-      async sendChatMessage() {
-        resolve();
-        await new Promise<void>((sendResolve) => {
-          resolveSend = sendResolve;
-        });
-      }
-    });
-
-    responsePromise = handleChatEvent(config, storage, reviewSubmitEvent());
+test("/review submit sends result to buttonClickedPayload space when chat space is missing", async () => {
+  const sentMessages: Array<{ spaceName: string; text: string }> = [];
+  const handleChatEvent = createHandler({
+    async createReviewFolder() {
+      return {
+        id: "folder-id",
+        name: "2026.06",
+        webViewLink: "https://drive.google.com/folder"
+      };
+    },
+    async sendChatMessage(_config, spaceName, text) {
+      sentMessages.push({ spaceName, text });
+    }
   });
 
-  await sendStarted;
-  const response = await responsePromise;
+  await handleChatEvent(
+    config,
+    storage,
+    reviewSubmitEvent({ chatSpaceName: null, buttonClickedPayloadSpaceName: "spaces/FALLBACK" })
+  );
+
+  await flushBackgroundTasks();
+
+  assert.equal(sentMessages.length, 2);
+  assert.equal(sentMessages[0]?.text, REVIEW_WORKFLOW_ACK_MESSAGE);
+  assert.equal(sentMessages[1]?.spaceName, "spaces/FALLBACK");
+});
+
+test("/review submit skips result delivery when space name is missing", async () => {
+  let sendCalled = false;
+  const handleChatEvent = createHandler({
+    async createReviewFolder() {
+      return {
+        id: "folder-id",
+        name: "2026.06",
+        webViewLink: "https://drive.google.com/folder"
+      };
+    },
+    async sendChatMessage() {
+      sendCalled = true;
+    }
+  });
+
+  const response = await handleChatEvent(
+    config,
+    storage,
+    reviewSubmitEvent({ chatSpaceName: null })
+  );
+
+  assert.equal(sendCalled, false);
   assert.deepEqual(response.actionResponse, {
     type: "DIALOG",
     dialogAction: {
       actionStatus: {
         statusCode: "OK",
-        userFacingMessage: "Готово. Отчёт отправлен в чат."
+        userFacingMessage: ""
       }
     }
   });
-  resolveSend();
+
+  await flushBackgroundTasks();
+  assert.equal(sendCalled, false);
+});
+
+test("/review submit returns ack before background workflow runs", async () => {
+  let createFolderCalled = false;
+  const sentMessages: string[] = [];
+  const handleChatEvent = createHandler({
+    async createReviewFolder() {
+      createFolderCalled = true;
+      return {
+        id: "folder-id",
+        name: "2026.06",
+        webViewLink: "https://drive.google.com/folder"
+      };
+    },
+    async sendChatMessage(_config, _spaceName, text) {
+      sentMessages.push(text);
+    }
+  });
+
+  await handleChatEvent(config, storage, reviewSubmitEvent());
+
+  assert.equal(createFolderCalled, false);
+  assert.equal(sentMessages[0], REVIEW_WORKFLOW_ACK_MESSAGE);
+
+  await flushBackgroundTasks();
+  assert.equal(createFolderCalled, true);
+  assert.equal(sentMessages.length, 2);
 });
 
 test("/review submit validates employee email domain", async () => {
@@ -661,7 +955,9 @@ test("/review submit accepts employee email from any configured domain", async (
   });
 
   await handleChatEvent(config, storage, reviewSubmitEvent({ employeeEmail: "bair.ochirov@fuse8.online" }));
+  await flushBackgroundTasks();
   await handleChatEvent(config, storage, reviewSubmitEvent({ employeeEmail: "iaroslav.zaiarnyi@byteminds.co.uk" }));
+  await flushBackgroundTasks();
 
   assert.deepEqual(acceptedEmails, [
     "bair.ochirov@fuse8.online",
@@ -704,6 +1000,7 @@ test("/review submit validates meeting time", async () => {
 });
 
 test("/review submit includes only internal form link when client form is not needed", async () => {
+  const sentMessages: string[] = [];
   const handleChatEvent = createHandler({
     async createReviewFolder(_config, _refreshToken, request) {
       assert.equal(request.needsClientForm, false);
@@ -717,6 +1014,9 @@ test("/review submit includes only internal form link when client form is not ne
           webViewLink: "https://docs.google.com/forms/internal-form-id"
         }
       };
+    },
+    async sendChatMessage(_config, _spaceName, text) {
+      sentMessages.push(text);
     }
   });
 
@@ -725,10 +1025,14 @@ test("/review submit includes only internal form link when client form is not ne
     storage,
     reviewSubmitEvent({ needsClientForm: false, commonEventObject: true })
   );
-  const text = getResponseText(response);
+  await flushBackgroundTasks();
 
-  assert.match(text, /Internal feedback form: https:\/\/docs\.google\.com\/forms\/internal-form-id/);
-  assert.doesNotMatch(text, /Client feedback form:/);
+  assert.equal(sentMessages[0], REVIEW_WORKFLOW_ACK_MESSAGE);
+
+  const messageText = sentMessages[1] ?? "";
+
+  assert.match(messageText, /Internal feedback form: https:\/\/docs\.google\.com\/forms\/internal-form-id/);
+  assert.doesNotMatch(messageText, /Client feedback form:/);
 });
 
 test("/review submit asks to configure internal form template when it is missing", async () => {
@@ -791,7 +1095,7 @@ test("/review submit returns clear text when employee folder is missing", async 
     async createReviewFolder() {
       throw new Error("should not create folder");
     },
-    async sendChatMessage(_config, _refreshToken, _spaceName, text) {
+    async sendChatMessage(_config, _spaceName, text) {
       sentMessages.push(text);
     }
   });
@@ -839,6 +1143,7 @@ test("/review submit asks to confirm when previous review is missing", async () 
 });
 
 test("/review submit continues without previous review after confirmation", async () => {
+  const sentMessages: string[] = [];
   const pendingStorage: TokenStorage = {
     ...storage,
     async savePendingReview() {},
@@ -868,6 +1173,9 @@ test("/review submit continues without previous review after confirmation", asyn
           webViewLink: "https://docs.google.com/document/report-id"
         }
       };
+    },
+    async sendChatMessage(_config, _spaceName, text) {
+      sentMessages.push(text);
     }
   });
 
@@ -876,29 +1184,71 @@ test("/review submit continues without previous review after confirmation", asyn
     pendingStorage,
     confirmWithoutPreviousEvent({ commonEventObject: true })
   );
-  const text = getResponseText(response);
+  const action = response.action as {
+    navigations?: Array<{ endNavigation?: { action?: string } }>;
+    notification?: { text?: string };
+  };
+  assert.equal(action.navigations?.[0]?.endNavigation?.action, "CLOSE_DIALOG");
+  assert.equal(action.notification?.text, undefined);
+  assert.equal((response as { actionResponse?: unknown }).actionResponse, undefined);
 
-  assert.match(text, /Папка ревью: 2026\.06 - https:\/\/drive\.google\.com\/folder/);
-  assert.doesNotMatch(text, /Previous review:/);
+  await flushBackgroundTasks();
+
+  assert.equal(sentMessages[0], REVIEW_WORKFLOW_ACK_MESSAGE);
+
+  const messageText = sentMessages[1] ?? "";
+
+  assert.match(messageText, /Папка ревью: 2026\.06 - https:\/\/drive\.google\.com\/folder/);
+  assert.doesNotMatch(messageText, /Previous review:/);
+  assert.equal(sentMessages.length, 2);
 });
 
-test("/review submit returns user-facing text when Drive folder creation fails", async () => {
+test("/review submit sends Drive error to Chat via bot when commonEventObject is present", async () => {
+  const sentMessages: string[] = [];
   const handleChatEvent = createHandler({
     async createReviewFolder() {
       throw new Error("Drive API has not been used in project");
     },
-    async sendChatMessage() {
+    async sendChatMessage(_config, _spaceName, text) {
+      sentMessages.push(text);
     }
   });
 
-  const response = await handleChatEvent(config, storage, reviewSubmitEvent());
-  const text = getResponseText(response);
+  const response = await handleChatEvent(
+    config,
+    storage,
+    reviewSubmitEvent({ commonEventObject: true })
+  );
+  await flushBackgroundTasks();
 
-  assert.match(text, /Не удалось выполнить \/review/);
+  assert.equal(sentMessages.length, 2);
+  assert.equal(sentMessages[0], REVIEW_WORKFLOW_ACK_MESSAGE);
+  assert.match(sentMessages[1] ?? "", /Не удалось создать папку ревью/);
+  assert.match(sentMessages[1] ?? "", /Drive API has not been used in project/);
+});
+
+test("/review submit returns user-facing text when Drive folder creation fails", async () => {
+  const sentMessages: string[] = [];
+  const handleChatEvent = createHandler({
+    async createReviewFolder() {
+      throw new Error("Drive API has not been used in project");
+    },
+    async sendChatMessage(_config, _spaceName, text) {
+      sentMessages.push(text);
+    }
+  });
+
+  await handleChatEvent(config, storage, reviewSubmitEvent());
+
+  await flushBackgroundTasks();
+
+  assert.equal(sentMessages[0], REVIEW_WORKFLOW_ACK_MESSAGE);
+  assert.match(sentMessages[1] ?? "", /Не удалось создать папку ревью/);
+  assert.match(sentMessages[1] ?? "", /Drive API has not been used in project/);
 });
 
 function confirmWithoutPreviousEvent(
-  overrides: { commonEventObject?: boolean } = {}
+  overrides: { commonEventObject?: boolean; chatSpaceName?: string | null } = {}
 ): ChatEvent {
   const event: ChatEvent = {
     user: {
@@ -924,16 +1274,46 @@ function confirmWithoutPreviousEvent(
     };
   }
 
+  if (overrides.chatSpaceName !== null) {
+    event.chat!.space = {
+      name: overrides.chatSpaceName ?? "spaces/AAA"
+    };
+  }
+
   return event;
 }
 
-function employeeSuggestionsEvent(query: string): ChatEvent {
+function reviewCommandEvent(spaceName = "spaces/AAA"): ChatEvent {
+  return {
+    user: {
+      name: "users/123"
+    },
+    commonEventObject: {},
+    chat: {
+      appCommandPayload: {
+        appCommandMetadata: {
+          appCommandId: 1
+        },
+        space: {
+          name: spaceName
+        }
+      }
+    }
+  };
+}
+
+function employeeSuggestionsEvent(
+  query: string,
+  overrides: { spaceName?: string } = {}
+): ChatEvent {
   return {
     user: {
       name: "users/123"
     },
     chat: {
-      widgetUpdatedPayload: {}
+      widgetUpdatedPayload: overrides.spaceName
+        ? { space: { name: overrides.spaceName } }
+        : {}
     },
     commonEventObject: {
       parameters: {
@@ -993,6 +1373,7 @@ function employeeCheckEvent(
   overrides: {
     selectedEmployee?: string;
     manualFullName?: string;
+    employeeEmail?: string;
   } = {}
 ): ChatEvent {
   return {
@@ -1019,6 +1400,11 @@ function employeeCheckEvent(
           stringInputs: {
             value: overrides.manualFullName ? [overrides.manualFullName] : []
           }
+        },
+        employeeEmail: {
+          stringInputs: {
+            value: [overrides.employeeEmail ?? "iaroslav.zaiarnyi@byteminds.co.uk"]
+          }
         }
       }
     }
@@ -1031,6 +1417,8 @@ function reviewSubmitEvent(
     meetingTime?: string;
     needsClientForm?: boolean;
     commonEventObject?: boolean;
+    chatSpaceName?: string | null;
+    buttonClickedPayloadSpaceName?: string;
   } = {}
 ): ChatEvent {
   const event: ChatEvent = {
@@ -1038,12 +1426,16 @@ function reviewSubmitEvent(
       name: "users/123"
     },
     chat: {
-      space: {
-        name: "spaces/AAA"
-      },
       buttonClickedPayload: {
         isDialogEvent: true,
-        dialogEventType: "SUBMIT_DIALOG"
+        dialogEventType: "SUBMIT_DIALOG",
+        ...(overrides.buttonClickedPayloadSpaceName
+          ? {
+            space: {
+              name: overrides.buttonClickedPayloadSpaceName
+            }
+          }
+          : {})
       }
     },
     common: {
@@ -1077,6 +1469,12 @@ function reviewSubmitEvent(
       }
     }
   };
+
+  if (overrides.chatSpaceName !== null) {
+    event.chat!.space = {
+      name: overrides.chatSpaceName ?? "spaces/AAA"
+    };
+  }
 
   if (overrides.commonEventObject) {
     event.commonEventObject = {
@@ -1126,6 +1524,13 @@ function getResponseText(response: Record<string, unknown>): string {
     return response.text;
   }
 
+  const action = response.action as {
+    notification?: { text?: string };
+  };
+  if (action?.notification?.text) {
+    return action.notification.text;
+  }
+
   const actionResponse = response.actionResponse as {
     dialogAction?: {
       actionStatus?: {
@@ -1138,8 +1543,13 @@ function getResponseText(response: Record<string, unknown>): string {
     return actionResponse.dialogAction.actionStatus.userFacingMessage;
   }
 
-  const message = response.hostAppDataAction as {
+  const hostAppDataAction = response.hostAppDataAction as {
     chatDataAction?: {
+      dialogAction?: {
+        actionStatus?: {
+          userFacingMessage?: string;
+        };
+      };
       createMessageAction?: {
         message?: {
           text?: string;
@@ -1148,5 +1558,9 @@ function getResponseText(response: Record<string, unknown>): string {
     };
   };
 
-  return message.chatDataAction?.createMessageAction?.message?.text ?? "";
+  if (hostAppDataAction?.chatDataAction?.dialogAction?.actionStatus?.userFacingMessage) {
+    return hostAppDataAction.chatDataAction.dialogAction.actionStatus.userFacingMessage;
+  }
+
+  return hostAppDataAction?.chatDataAction?.createMessageAction?.message?.text ?? "";
 }

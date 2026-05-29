@@ -29,7 +29,8 @@ https://<cloud-run-url>/auth/google/callback
 
 5. Создать Firestore database в Native mode.
 6. Создать root-папку ревью в Google Drive и скопировать ее id.
-7. OAuth scopes включают доступ к Drive, Calendar, Chat messages и Google Workspace directory. Более узкий `drive.file` не подходит для заранее созданной root-папки.
+7. OAuth scopes ревьюера включают доступ к Drive, Docs, Calendar и Google Workspace directory. Более узкий `drive.file` не подходит для заранее созданной root-папки.
+8. Финальные сообщения в Google Chat отправляются от имени бота через service account со scope `https://www.googleapis.com/auth/chat.bot`. В Cloud Run используйте attached service account / ADC. **Локально** без `GOOGLE_SERVICE_ACCOUNT_KEY_FILE` финальный отчёт в чат не уйдёт — см. [docs/local-google-chat-test.md](docs/local-google-chat-test.md).
 
 После добавления или изменения OAuth scopes ревьюерам нужно заново пройти OAuth, чтобы refresh token получил новые права.
 
@@ -43,6 +44,7 @@ GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 GOOGLE_REDIRECT_URI=https://<cloud-run-url>/auth/google/callback
 REVIEWS_ROOT_FOLDER_ID=...
+GOOGLE_SERVICE_ACCOUNT_KEY_FILE=
 GOOGLE_CLOUD_PROJECT=...
 PORT=8080
 ```
@@ -86,6 +88,9 @@ gcloud run deploy performance-review-bot \
 - Slash command для проверки:
   - Name: `/ping`
   - Command ID: `2`
+- Slash command для отладки auth:
+  - Name: `/check-auth`
+  - Command ID: `3`
 
 ## Проверка
 
@@ -96,3 +101,4 @@ gcloud run deploy performance-review-bot \
 5. Если бот попросил OAuth, нажать “Подключить Google”.
 6. Повторить `/review`.
 7. Проверить, что в root-папке появилась папка ревью.
+8. Проверить финальное сообщение в Google Chat и лог `submit.sendChatMessage.success`.

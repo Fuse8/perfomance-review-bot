@@ -66,3 +66,41 @@ test("loadConfig uses default reviewer task reminder settings", () => {
     process.env = previousEnv;
   }
 });
+
+test("loadConfig allows missing Google Chat service account key file", () => {
+  const previousEnv = { ...process.env };
+
+  try {
+    process.env.APP_BASE_URL = "https://example.test";
+    process.env.GOOGLE_CLIENT_ID = "client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "client-secret";
+    process.env.GOOGLE_REDIRECT_URI = "https://example.test/auth/google/callback";
+    process.env.REVIEWS_ROOT_FOLDER_ID = "root-folder-id";
+    delete process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE;
+
+    const config = loadConfig();
+
+    assert.equal(config.chatServiceAccountKeyFile, undefined);
+  } finally {
+    process.env = previousEnv;
+  }
+});
+
+test("loadConfig reads Google Chat service account key file", () => {
+  const previousEnv = { ...process.env };
+
+  try {
+    process.env.APP_BASE_URL = "https://example.test";
+    process.env.GOOGLE_CLIENT_ID = "client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "client-secret";
+    process.env.GOOGLE_REDIRECT_URI = "https://example.test/auth/google/callback";
+    process.env.REVIEWS_ROOT_FOLDER_ID = "root-folder-id";
+    process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE = ".data/service-account.json";
+
+    const config = loadConfig();
+
+    assert.equal(config.chatServiceAccountKeyFile, ".data/service-account.json");
+  } finally {
+    process.env = previousEnv;
+  }
+});
