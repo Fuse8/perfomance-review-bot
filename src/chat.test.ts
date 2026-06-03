@@ -107,7 +107,7 @@ type ChatEventHandlerDeps = {
   sendChatMessage: typeof import("./google-chat.js").sendChatMessage;
 };
 
-test("/check returns smoke-test response", async () => {
+test("/info returns bot version and review command help", async () => {
   const handleChatEvent = createChatEventHandler();
 
   const response = await handleChatEvent(config, storage, {
@@ -120,17 +120,12 @@ test("/check returns smoke-test response", async () => {
     }
   });
 
-  assert.deepEqual(response, {
-    hostAppDataAction: {
-      chatDataAction: {
-        createMessageAction: {
-          message: {
-            text: "hello world"
-          }
-        }
-      }
-    }
-  });
+  const text = getResponseText(response);
+  assert.match(text, /^\/info/m);
+  assert.match(text, /Version: 0\.1\.0/);
+  assert.match(text, /Available commands:/);
+  assert.match(text, /\/review/);
+  assert.match(text, /opens a form|открывает форму/i);
 });
 
 test("/check-auth returns auth diagnostics report", async () => {

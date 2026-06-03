@@ -1,4 +1,5 @@
 import type { AppConfig } from "./config.js";
+import { readFileSync } from "node:fs";
 import {
   createCalendarEvent,
   createReviewerReminderEvents,
@@ -24,9 +25,10 @@ const SELECT_EMPLOYEE_FUNCTION = "selectEmployee";
 const CHECK_EMPLOYEE_FOLDER_FUNCTION = "checkEmployeeFolder";
 const CONFIRM_WITHOUT_PREVIOUS_FUNCTION = "confirmReviewWithoutPrevious";
 const REVIEW_COMMAND_ID = 1;
-const HEALTH_COMMAND_ID = 2;
+const INFO_COMMAND_ID = 2;
 export const CHECK_AUTH_COMMAND_ID = 3;
 const REVIEW_WORKFLOW_ACK_MESSAGE = "Запустил подготовку PR. Результат пришлю сюда.";
+const BOT_VERSION = readBotVersion();
 
 type ReviewWorkflowParams = {
   config: AppConfig;
@@ -146,9 +148,9 @@ export function createChatEventHandler(deps: Partial<ChatEventHandlerDeps> = {})
       return handleEmployeeSuggestions(config, storage, chatUserId, event, resolvedDeps);
     }
 
-    if (appCommandId === HEALTH_COMMAND_ID) {
-      logChatEvent("route.check");
-      return addOnTextResponse("hello world");
+    if (appCommandId === INFO_COMMAND_ID) {
+      logChatEvent("route.info");
+      return addOnTextResponse(buildInfoMessage());
     }
 
     if (appCommandId === CHECK_AUTH_COMMAND_ID) {
@@ -197,6 +199,23 @@ export function createChatEventHandler(deps: Partial<ChatEventHandlerDeps> = {})
 }
 
 export const handleChatEvent = createChatEventHandler();
+
+function buildInfoMessage(): string {
+  return [
+    "/info",
+    "",
+    `Version: ${BOT_VERSION}`,
+    "",
+    "Available commands:",
+    "- /review — открывает форму и запускает workflow performance review"
+  ].join("\n");
+}
+
+function readBotVersion(): string {
+  const packageJsonPath = new URL("../package.json", import.meta.url);
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { version?: string };
+  return packageJson.version ?? "unknown";
+}
 
 async function handleEmployeeSuggestions(
   config: AppConfig,

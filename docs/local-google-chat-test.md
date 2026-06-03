@@ -31,7 +31,7 @@ pnpm tunnel       # терминал 2 → скопировать HTTPS URL
 
 - OAuth redirect: `https://<tunnel>/auth/google/callback`
 - Chat App URL: `https://<tunnel>/google-chat/events`
-- Команды: `/review` (1), `/ping` (2), `/check-auth` (3)
+- Команды: `/review` (1), `/info` (2), `/check-auth` (3)
 - Chat API включён; SA key в `.data/service-account.json`; бот в space
 
 Ручной OAuth (пока нет `/auth`):
@@ -42,7 +42,7 @@ https://<tunnel>/auth/google/start?chatUserId=<chat_user_id>
 
 ## Чеклист
 
-1. `/ping` → `hello world`
+1. `/info` → версия бота и описание команды `/review`
 2. `/check-auth` → отчёт по SA и OAuth
 3. `/review` → OAuth при необходимости → форма → submit
 4. В чате сразу: «Запустил подготовку PR…»; через ~20 с — финал (папка, calendar, reminders)

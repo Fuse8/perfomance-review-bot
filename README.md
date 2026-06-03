@@ -127,8 +127,8 @@ In Google Chat API settings:
   - Name: `/review`
   - Command ID: `1`
   - Enable **Opens dialog** if available in the configuration UI.
-- Health check slash command:
-  - Name: `/ping`
+- Info slash command:
+  - Name: `/info`
   - Command ID: `2`
 - Authentication debugging slash command:
   - Name: `/check-auth`
@@ -137,7 +137,7 @@ In Google Chat API settings:
 ## Verification
 
 1. Open a chat with the bot.
-2. Send `/ping` and verify the response is `hello world`.
+2. Send `/info` and verify the response contains the bot version and `/review` command description.
 3. Send `/review`.
 4. Complete the form.
 5. If the bot requests OAuth authorization, click **Connect Google**.
