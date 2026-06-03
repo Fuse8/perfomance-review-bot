@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": "22.x"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
@@ -20,18 +20,19 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
-    "@prisma/client": "^6.8.2",
-    "express": "^4.19.2",
-    "google-auth-library": "^9.14.1",
-    "googleapis": "^140.0.1",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "express": "^5.2.1",
+    "google-auth-library": "^10.6.2",
+    "googleapis": "^173.0.0",
     "nanoid": "^5.0.7"
   },
   "devDependencies": {
-    "@types/express": "^4.17.21",
-    "@types/node": "^22.10.1",
-    "prisma": "^6.8.2",
-    "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.9.1",
+    "prisma": "^7.8.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
   },
-  "packageManager": "pnpm@10.17.0+sha512.fce8a3dd29a4ed2ec566fb53efbb04d8c44a0f05bc6f24a73046910fb9c3ce7afa35a0980500668fa3573345bd644644fa98338fa168235c80f4aa17aa17fbef"
+  "packageManager": "pnpm@11.5.1"
 }

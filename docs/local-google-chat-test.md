@@ -1,6 +1,6 @@
 # Локальный тест Google Chat (без Cloud Run billing)
 
-Нужны: Node 22, pnpm, HTTPS tunnel (`pnpm tunnel` / cloudflared), OAuth client, Drive root folder, SA key для Chat.
+Нужны: Node 24, pnpm, HTTPS tunnel (`pnpm tunnel` / cloudflared), OAuth client, Drive root folder, SA key для Chat.
 
 ## Env (`.env.local`)
 

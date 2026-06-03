@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import type { AppConfig } from "./config.js";
 import type { OAuthState, PendingReviewRequest, ReviewerToken } from "./types.js";
@@ -235,8 +236,9 @@ function createPrismaTokenStorage(config: AppConfig): TokenStorage {
   }
 
   if (!prismaClient) {
+    const adapter = new PrismaPg({ connectionString: config.databaseUrl });
     prismaClient = new PrismaClient({
-      datasourceUrl: config.databaseUrl
+      adapter
     });
   }
 
