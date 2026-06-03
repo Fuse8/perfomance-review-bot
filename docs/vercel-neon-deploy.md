@@ -32,7 +32,7 @@ STORAGE_DRIVER=local
 LOCAL_STORAGE_PATH=.data/storage.json
 ```
 
-Если `STORAGE_DRIVER` не задан, на Vercel по умолчанию: `local` (без `DATABASE_URL`) или `prisma` (если `DATABASE_URL` задан). **Не используйте `firestore` на Vercel** — пакет не подходит для serverless.
+Если `STORAGE_DRIVER` не задан, по умолчанию используется: `local` (без `DATABASE_URL`) или `prisma` (если `DATABASE_URL` задан).
 
 Для smoke deploy `STORAGE_DRIVER=local` нужен только чтобы handler стартовал. Для реальной работы так оставлять нельзя: файловое хранилище на Vercel эфемерное.
 

@@ -1,45 +1,71 @@
 # Performance Review Bot MVP
 
-Минимальный Google Chat-бот для тестового сценария: `/review` открывает форму, после отправки бот создает папку `{Имя Фамилия} // YYYY.MM` в Google Drive и возвращает ссылку.
+A Google Chat bot for managing a performance review workflow.
 
-## Что реализовано
+Basic flow: the `/review` command opens a form. After submission, the bot creates a Google Drive folder named `{First Name Last Name} // YYYY.MM` and returns a link to it.
 
-- Express webhook для Google Chat: `POST /google-chat/events`
-- OAuth ревьюера через Google
-- Хранилище refresh token:
-  - локально: `.data/storage.json`
-  - production: Firestore или Prisma/Neon
-- Создание папки в Google Drive через Drive API
-- Healthcheck: `GET /healthz`
-- Dockerfile для Cloud Run
-- Vercel entrypoint: `api/index.ts`
+## Tech Stack
 
-## Настройка Google Cloud
+- TypeScript
+- Node.js
+- Express
+- Google Chat API
+- Google OAuth 2.0
+- Google Drive / Docs / Calendar / People / Forms APIs
+- Prisma
+- Neon / PostgreSQL
+- Vercel
 
-1. Создать Google Cloud project.
-2. Включить API:
+## Implemented Features
+
+- Express webhook for Google Chat: `POST /google-chat/events`
+- Reviewer authentication via Google OAuth
+- Sending messages to Google Chat on behalf of the bot using a service account
+- Refresh token storage:
+  - Local: `.data/storage.json`
+  - Production: Prisma/Neon
+- Google Drive folder creation and document management via Drive / Docs APIs
+- Calendar, People, and Forms API integrations
+- Health check endpoint: `GET /healthz`
+- Vercel entry point: `api/index.ts`
+
+## Key Files
+
+- `src/app.ts` — Express app and routes
+- `src/server.ts` — Local server entry point
+- `src/chat.ts` — Main Google Chat workflow
+- `src/oauth.ts` — Reviewer OAuth flow
+- `src/google-chat.ts` — Message delivery via bot authentication
+- `src/drive.ts` — Drive / Docs / Forms logic
+- `src/calendar.ts` — Calendar meetings and reminders
+- `src/people.ts` — Employee lookup
+- `src/storage.ts` — Storage abstraction and implementations
+- `prisma/schema.prisma` — Database schema
+
+## Google Cloud Setup
+
+1. Create a Google Cloud project.
+2. Enable the following APIs:
    - Google Chat API
    - Google Drive API
    - Google People API
-   - Firestore API
-   - Google People/OAuth userinfo обычно доступен через OAuth2 API
-3. Создать OAuth Client ID типа Web application.
-4. Добавить redirect URI:
+   - Google People/OAuth userinfo (typically available through OAuth2 APIs)
+3. Create an OAuth Client ID of type **Web application**.
+4. Add the redirect URI:
 
 ```text
 https://<cloud-run-url>/auth/google/callback
 ```
 
-5. Если используете Firestore, создать Firestore database в Native mode.
-6. Создать root-папку ревью в Google Drive и скопировать ее id.
-7. OAuth scopes ревьюера включают доступ к Drive, Docs, Calendar и Google Workspace directory. Более узкий `drive.file` не подходит для заранее созданной root-папки.
-8. Финальные сообщения в Google Chat отправляются от имени бота через service account со scope `https://www.googleapis.com/auth/chat.bot`. В Cloud Run используйте attached service account / ADC. **Локально** без `GOOGLE_SERVICE_ACCOUNT_KEY_FILE` финальный отчёт в чат не уйдёт — см. [docs/local-google-chat-test.md](docs/local-google-chat-test.md).
+5. Create a root review folder in Google Drive and copy its ID.
+6. Reviewer OAuth scopes must include access to Drive, Docs, Calendar, and the Google Workspace directory. The narrower `drive.file` scope is not suitable when using a pre-created root folder.
+7. Final Google Chat messages are sent on behalf of the bot using a service account with the scope `https://www.googleapis.com/auth/chat.bot`. In Cloud Run, use an attached service account / ADC. **Locally**, without `GOOGLE_SERVICE_ACCOUNT_KEY_FILE`, the final report will not be delivered to Google Chat. See [docs/local-google-chat-test.md](docs/local-google-chat-test.md).
 
-После добавления или изменения OAuth scopes ревьюерам нужно заново пройти OAuth, чтобы refresh token получил новые права.
+After adding or modifying OAuth scopes, reviewers must complete the OAuth flow again so that their refresh token receives the new permissions.
 
-## Env
+## Environment Variables
 
-Скопировать `.env.example` и заполнить:
+Copy `.env.example` and fill in the required values:
 
 ```text
 APP_BASE_URL=https://<app-url>
@@ -52,20 +78,19 @@ LOCAL_STORAGE_PATH=.data/storage.json
 DATABASE_URL=
 GOOGLE_SERVICE_ACCOUNT_KEY_FILE=
 GOOGLE_SERVICE_ACCOUNT_CREDENTIALS=
-GOOGLE_CLOUD_PROJECT=...
 PORT=8080
 ```
 
-## Локальный запуск
+## Local Development
 
 ```bash
 pnpm install
 pnpm dev:local
 ```
 
-Для локального теста Google Chat без billing см. [docs/local-google-chat-test.md](docs/local-google-chat-test.md).
+For local Google Chat testing without billing, see [docs/local-google-chat-test.md](docs/local-google-chat-test.md).
 
-Локально оставляйте:
+For local development, keep:
 
 ```text
 STORAGE_DRIVER=local
@@ -74,7 +99,7 @@ LOCAL_STORAGE_PATH=.data/storage.json
 
 ## Vercel + Neon
 
-Для Vercel используйте:
+For Vercel deployments, use:
 
 ```text
 STORAGE_DRIVER=prisma
@@ -82,49 +107,46 @@ DATABASE_URL=postgresql://...
 GOOGLE_SERVICE_ACCOUNT_CREDENTIALS={"type":"service_account",...}
 ```
 
-Подробно: [docs/vercel-neon-deploy.md](docs/vercel-neon-deploy.md).
+For detailed instructions, see [docs/vercel-neon-deploy.md](docs/vercel-neon-deploy.md).
 
-## Cloud Run
+## Commands
 
-Быстрый путь описан в [docs/google-chat-mvp-test.md](docs/google-chat-mvp-test.md).
+- Install: `pnpm install`
+- Development: `pnpm dev:local`
+- Test: `pnpm test`
+- Prisma generate: `pnpm prisma:generate`
+- Prisma migrate (development): `pnpm prisma:migrate:dev`
+- Prisma migrate (production): `pnpm prisma:migrate:deploy`
 
-```bash
-gcloud run deploy performance-review-bot \
-  --source . \
-  --region europe-west1 \
-  --allow-unauthenticated \
-  --set-env-vars APP_BASE_URL=https://<cloud-run-url> \
-  --set-env-vars GOOGLE_CLIENT_ID=<id> \
-  --set-env-vars GOOGLE_CLIENT_SECRET=<secret> \
-  --set-env-vars GOOGLE_REDIRECT_URI=https://<cloud-run-url>/auth/google/callback \
-  --set-env-vars REVIEWS_ROOT_FOLDER_ID=<folder-id>
-```
+## Google Chat App Configuration
 
-После первого деплоя Cloud Run URL станет известен. Его нужно добавить в OAuth redirect URI и в `APP_BASE_URL`, затем задеплоить еще раз.
-
-## Настройка Google Chat app
-
-В Google Chat API:
+In Google Chat API settings:
 
 - App URL: `https://<cloud-run-url>/google-chat/events`
 - Slash command:
   - Name: `/review`
   - Command ID: `1`
-  - Opens dialog: включить, если доступно в интерфейсе настройки.
-- Slash command для проверки:
+  - Enable **Opens dialog** if available in the configuration UI.
+- Health check slash command:
   - Name: `/ping`
   - Command ID: `2`
-- Slash command для отладки auth:
+- Authentication debugging slash command:
   - Name: `/check-auth`
   - Command ID: `3`
 
-## Проверка
+## Verification
 
-1. Открыть чат с ботом.
-2. Написать `/ping` и проверить ответ `hello world`.
-3. Написать `/review`.
-4. Заполнить форму.
-5. Если бот попросил OAuth, нажать “Подключить Google”.
-6. Повторить `/review`.
-7. Проверить, что в root-папке появилась папка ревью.
-8. Проверить финальное сообщение в Google Chat и лог `submit.sendChatMessage.success`.
+1. Open a chat with the bot.
+2. Send `/ping` and verify the response is `hello world`.
+3. Send `/review`.
+4. Complete the form.
+5. If the bot requests OAuth authorization, click **Connect Google**.
+6. Run `/review` again.
+7. Verify that a review folder has been created inside the root folder.
+8. Verify the final Google Chat message and the log entry `submit.sendChatMessage.success`.
+
+## Documentation
+
+- Agent instructions: [AGENTS.md](AGENTS.md)
+- Product specification: [docs/app.md](docs/app.md)
+- Deployment guide: [docs/vercel-neon-deploy.md](docs/vercel-neon-deploy.md)

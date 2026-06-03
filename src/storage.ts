@@ -1,4 +1,3 @@
-import { createRequire } from "node:module";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { PrismaClient } from "@prisma/client";
@@ -31,18 +30,7 @@ export function createTokenStorage(config: AppConfig): TokenStorage {
     return new LocalTokenStorage(config.localStoragePath);
   }
 
-  if (config.storageDriver === "prisma") {
-    return createPrismaTokenStorage(config);
-  }
-
-  return createFirestoreTokenStorage();
-}
-
-const require = createRequire(import.meta.url);
-
-function createFirestoreTokenStorage(): TokenStorage {
-  const { FirestoreTokenStorage } = require("./storage-firestore.js") as typeof import("./storage-firestore.js");
-  return new FirestoreTokenStorage();
+  return createPrismaTokenStorage(config);
 }
 
 type PrismaReviewerTokenDelegate = {
@@ -100,7 +88,7 @@ export class PrismaTokenStorage implements TokenStorage {
         where: { chatUserId }
       });
     } catch {
-      // Delete should behave like local/firestore storage and be idempotent.
+      // Delete should behave like local storage and be idempotent.
     }
   }
 

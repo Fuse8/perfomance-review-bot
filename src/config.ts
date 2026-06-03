@@ -14,7 +14,7 @@ export type AppConfig = {
   taskCheckDaysBefore: number;
   taskPrepareDaysBefore: number;
   taskReminderTime: string;
-  storageDriver: "firestore" | "local" | "prisma";
+  storageDriver: "local" | "prisma";
   localStoragePath: string;
   databaseUrl?: string;
   port: number;
@@ -36,16 +36,8 @@ export function resolveStorageDriver(): AppConfig["storageDriver"] {
   if (explicit === "prisma") {
     return "prisma";
   }
-  if (explicit === "firestore") {
-    return "firestore";
-  }
 
-  // Vercel has no Firestore ADC by default; avoid loading @google-cloud/firestore unless requested.
-  if (process.env.VERCEL) {
-    return process.env.DATABASE_URL ? "prisma" : "local";
-  }
-
-  return "firestore";
+  return process.env.DATABASE_URL ? "prisma" : "local";
 }
 
 export function loadConfig(): AppConfig {
