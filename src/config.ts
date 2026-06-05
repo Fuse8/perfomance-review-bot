@@ -14,9 +14,7 @@ export type AppConfig = {
   taskCheckDaysBefore: number;
   taskPrepareDaysBefore: number;
   taskReminderTime: string;
-  storageDriver: "local" | "prisma";
-  localStoragePath: string;
-  databaseUrl?: string;
+  databaseUrl: string;
   port: number;
 };
 
@@ -28,21 +26,7 @@ function requiredEnv(name: string): string {
   return value;
 }
 
-export function resolveStorageDriver(): AppConfig["storageDriver"] {
-  const explicit = process.env.STORAGE_DRIVER?.trim().toLowerCase();
-  if (explicit === "local") {
-    return "local";
-  }
-  if (explicit === "prisma") {
-    return "prisma";
-  }
-
-  return process.env.DATABASE_URL ? "prisma" : "local";
-}
-
 export function loadConfig(): AppConfig {
-  const storageDriver = resolveStorageDriver();
-
   return {
     appBaseUrl: requiredEnv("APP_BASE_URL").replace(/\/$/, ""),
     googleClientId: requiredEnv("GOOGLE_CLIENT_ID"),
@@ -62,9 +46,7 @@ export function loadConfig(): AppConfig {
     taskCheckDaysBefore: Number(process.env.TASK_CHECK_DAYS_BEFORE ?? 7),
     taskPrepareDaysBefore: Number(process.env.TASK_PREPARE_DAYS_BEFORE ?? 3),
     taskReminderTime: process.env.TASK_REMINDER_TIME ?? "12:00",
-    storageDriver,
-    localStoragePath: process.env.LOCAL_STORAGE_PATH ?? ".data/storage.json",
-    databaseUrl: process.env.DATABASE_URL || undefined,
+    databaseUrl: requiredEnv("DATABASE_URL"),
     port: Number(process.env.PORT ?? 8080)
   };
 }

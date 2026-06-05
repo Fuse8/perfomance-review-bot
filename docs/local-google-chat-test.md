@@ -1,17 +1,16 @@
 # Локальный тест Google Chat (без Cloud Run billing)
 
-Нужны: Node 24, pnpm, HTTPS tunnel (`pnpm tunnel` / cloudflared), OAuth client, Drive root folder, SA key для Chat.
+Нужны: Node 24, pnpm, Docker, HTTPS tunnel (`pnpm tunnel` / cloudflared), OAuth client, Drive root folder, SA key для Chat.
 
 ## Env (`.env`)
 
 ```env
-STORAGE_DRIVER=local
-LOCAL_STORAGE_PATH=.data/storage.json
 APP_BASE_URL=https://<tunnel-url>
 GOOGLE_REDIRECT_URI=https://<tunnel-url>/auth/google/callback
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 REVIEWS_ROOT_FOLDER_ID=...
+DATABASE_URL=postgresql://performance_review_bot:performance_review_bot@localhost:5432/performance_review_bot
 GOOGLE_SERVICE_ACCOUNT_KEY_FILE=.data/service-account.json
 PORT=8080
 ```
@@ -21,6 +20,8 @@ PORT=8080
 ## Запуск
 
 ```bash
+pnpm db:local     # один раз перед запуском
+pnpm prisma:migrate:dev
 pnpm dev:local    # терминал 1
 pnpm tunnel       # терминал 2 → скопировать HTTPS URL
 ```
@@ -51,4 +52,4 @@ https://<tunnel>/auth/google/start?chatUserId=<chat_user_id>
 5. Логи: `submit.workflow.start` → `submit.workflow.success` → `submit.sendChatMessage.success`
 6. Без OAuth: `/review` — сообщение со ссылкой в чат; при вводе имени — карточка auth + кнопка «Закрыть» (autocomplete не закрывает диалог сам)
 
-Токены: `.data/storage.json`.
+Токены и OAuth state хранятся в локальном Postgres через Prisma.

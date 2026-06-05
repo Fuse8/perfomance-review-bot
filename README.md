@@ -23,9 +23,7 @@ Basic flow: the `/review` command opens a form. After submission, the bot create
 - Express webhook for Google Chat: `POST /google-chat/events`
 - Reviewer authentication via Google OAuth
 - Sending messages to Google Chat on behalf of the bot using a service account
-- Refresh token storage:
-  - Local: `.data/storage.json`
-  - Production: Prisma/Neon
+- Refresh token storage via Prisma/PostgreSQL
 - Google Drive folder creation and document management via Drive / Docs APIs
 - Calendar, People, and Forms API integrations
 - Health check endpoint: `GET /healthz`
@@ -75,9 +73,7 @@ GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 GOOGLE_REDIRECT_URI=https://<app-url>/auth/google/callback
 REVIEWS_ROOT_FOLDER_ID=...
-STORAGE_DRIVER=local
-LOCAL_STORAGE_PATH=.data/storage.json
-DATABASE_URL=
+DATABASE_URL=postgresql://performance_review_bot:performance_review_bot@localhost:5432/performance_review_bot
 GOOGLE_SERVICE_ACCOUNT_KEY_FILE=
 GOOGLE_SERVICE_ACCOUNT_CREDENTIALS=
 PORT=8080
@@ -87,24 +83,20 @@ PORT=8080
 
 ```bash
 pnpm install
+pnpm db:local
+pnpm prisma:migrate:dev
 pnpm dev:local
 ```
 
 For local Google Chat testing without billing, see [docs/local-google-chat-test.md](docs/local-google-chat-test.md).
 
-For local development, keep:
-
-```text
-STORAGE_DRIVER=local
-LOCAL_STORAGE_PATH=.data/storage.json
-```
+Local development uses Docker Postgres and Prisma. `DATABASE_URL` is required.
 
 ## Vercel + Neon
 
 For Vercel deployments, use:
 
 ```text
-STORAGE_DRIVER=prisma
 DATABASE_URL=postgresql://...
 GOOGLE_SERVICE_ACCOUNT_CREDENTIALS={"type":"service_account",...}
 ```
@@ -114,8 +106,9 @@ For detailed instructions, see [docs/vercel-neon-deploy.md](docs/vercel-neon-dep
 ## Commands
 
 - Install: `pnpm install`
+- Local database: `pnpm db:local`
 - Development: `pnpm dev:local`
-- Test: `pnpm test`
+- Test: `pnpm test:quiet`
 - Prisma generate: `pnpm prisma:generate`
 - Prisma migrate (development): `pnpm prisma:migrate:dev`
 - Prisma migrate (production): `pnpm prisma:migrate:deploy`

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import { test } from "vitest";
 import type { AppConfig } from "./config.js";
 import { buildAuthCheckReport } from "./chat-auth-check.js";
 import type { TokenStorage } from "./storage.js";
@@ -22,8 +22,7 @@ const baseConfig: AppConfig = {
   taskCheckDaysBefore: 7,
   taskPrepareDaysBefore: 3,
   taskReminderTime: "12:00",
-  storageDriver: "local",
-  localStoragePath: ".data/storage.json",
+  databaseUrl: "postgresql://user:pass@localhost:5432/db",
   port: 8080
 };
 

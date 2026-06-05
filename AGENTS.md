@@ -17,6 +17,5 @@ Core project information, technology stack, environment configuration, and avail
 
 ## Testing expectations
 
-- Run `pnpm test` after code changes
-- For storage changes, cover both `local` and `prisma`
-- For chat flow changes, update or add tests near `src/chat.test.ts`
+- Use `pnpm test:quiet` for tests.
+- If a test command fails, rerun the smallest relevant test or inspect the failure output before running the full suite again.

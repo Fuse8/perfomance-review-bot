@@ -4,9 +4,8 @@
 
 - HTTP handler: `api/index.ts` (Node auto-detected; не задавайте `"runtime": "@vercel/node"` в `vercel.json` — невалидный формат)
 - маршрутизация: `vercel.json` → rewrite на `/api/index`
-- storage: `STORAGE_DRIVER=prisma`
 - БД: Neon/Postgres через Prisma
-- локальный dev остаётся на `STORAGE_DRIVER=local`
+- локальный dev использует Docker Postgres через Prisma
 
 ## Шаг 1. Минимальный smoke deploy
 
@@ -28,13 +27,10 @@ GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 GOOGLE_REDIRECT_URI=https://<your-vercel-domain>/auth/google/callback
 REVIEWS_ROOT_FOLDER_ID=...
-STORAGE_DRIVER=local
-LOCAL_STORAGE_PATH=.data/storage.json
+DATABASE_URL=postgresql://...
 ```
 
-Если `STORAGE_DRIVER` не задан, по умолчанию используется: `local` (без `DATABASE_URL`) или `prisma` (если `DATABASE_URL` задан).
-
-Для smoke deploy `STORAGE_DRIVER=local` нужен только чтобы handler стартовал. Для реальной работы так оставлять нельзя: файловое хранилище на Vercel эфемерное.
+`DATABASE_URL` обязателен: приложение использует Prisma/Postgres для OAuth tokens и pending review state.
 
 Если `/healthz` отвечает `503` с `error`, в теле будет текст вроде `Missing required env var: ...` — добавьте переменные в Vercel → Settings → Environment Variables и redeploy.
 
@@ -65,7 +61,6 @@ GET https://<your-vercel-domain>/healthz
 3. В Vercel env задать:
 
 ```text
-STORAGE_DRIVER=prisma
 DATABASE_URL=postgresql://...
 ```
 
@@ -98,12 +93,12 @@ GOOGLE_SERVICE_ACCOUNT_CREDENTIALS={"type":"service_account",...}
 
 ## Локальный dev
 
-Локально оставляйте:
+Локально используйте Docker Postgres:
 
-```text
-STORAGE_DRIVER=local
-LOCAL_STORAGE_PATH=.data/storage.json
-GOOGLE_SERVICE_ACCOUNT_KEY_FILE=/absolute/path/to/service-account.json
+```bash
+pnpm db:local
+pnpm prisma:migrate:dev
+pnpm dev:local
 ```
 
-Это сохраняет текущий flow с tunnel и ручной переавторизацией без Neon.
+В `.env` нужен локальный `DATABASE_URL` и `GOOGLE_SERVICE_ACCOUNT_KEY_FILE=/absolute/path/to/service-account.json`.

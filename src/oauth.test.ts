@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { OAUTH_SCOPES } from "./oauth.js";
 
 test("OAuth scopes include Google Calendar events access", () => {

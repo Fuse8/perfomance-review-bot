@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import test from "node:test";
+import { test } from "vitest";
 import type { AppConfig } from "./config.js";
 import { createApp } from "./app.js";
 import type { TokenStorage } from "./storage.js";
@@ -21,9 +21,7 @@ const config: AppConfig = {
   taskCheckDaysBefore: 7,
   taskPrepareDaysBefore: 3,
   taskReminderTime: "12:00",
-  storageDriver: "local",
-  localStoragePath: ".data/storage.json",
-  databaseUrl: undefined,
+  databaseUrl: "postgresql://user:pass@localhost:5432/db",
   port: 8080
 };
 

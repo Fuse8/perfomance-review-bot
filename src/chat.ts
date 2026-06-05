@@ -836,6 +836,10 @@ function getDateInput(input: ChatFormInput | undefined): string {
 }
 
 function logChatEvent(message: string, data?: Record<string, unknown>): void {
+  if (process.env.NODE_ENV === "test") {
+    return;
+  }
+
   const timestamp = new Date().toISOString();
   if (data) {
     console.log(`[chat] ${timestamp} ${message}`, JSON.stringify(data));

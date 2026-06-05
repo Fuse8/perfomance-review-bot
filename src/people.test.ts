@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { searchDirectoryEmployeesInPeople } from "./people.js";
 
 test("searchDirectoryEmployeesInPeople maps directory people to employee suggestions", async () => {

@@ -1,17 +1,9 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import type { AppConfig } from "./config.js";
 import type { OAuthState, PendingReviewRequest, ReviewerToken } from "./types.js";
 
 let prismaClient: PrismaClient | null = null;
-
-type StorageData = {
-  tokens: Record<string, ReviewerToken>;
-  oauthStates: Record<string, OAuthState>;
-  pendingReviews: Record<string, PendingReviewRequest>;
-};
 
 export interface TokenStorage {
   get(chatUserId: string): Promise<ReviewerToken | null>;
@@ -24,10 +16,6 @@ export interface TokenStorage {
 }
 
 export function createTokenStorage(config: AppConfig): TokenStorage {
-  if (config.storageDriver === "local") {
-    return new LocalTokenStorage(config.localStoragePath);
-  }
-
   return createPrismaTokenStorage(config);
 }
 
@@ -135,103 +123,7 @@ export class PrismaTokenStorage implements TokenStorage {
   }
 }
 
-class LocalTokenStorage implements TokenStorage {
-  constructor(private readonly path: string) {}
-
-  async get(chatUserId: string): Promise<ReviewerToken | null> {
-    const data = await this.read();
-    return data.tokens[chatUserId] ?? null;
-  }
-
-  async save(token: ReviewerToken): Promise<void> {
-    const data = await this.read();
-    data.tokens[token.chatUserId] = token;
-    await this.write(data);
-  }
-
-  async delete(chatUserId: string): Promise<void> {
-    const data = await this.read();
-    delete data.tokens[chatUserId];
-    await this.write(data);
-  }
-
-  async saveOAuthState(state: OAuthState): Promise<void> {
-    const data = await this.read();
-    data.oauthStates[state.state] = state;
-    await this.write(data);
-  }
-
-  async consumeOAuthState(state: string): Promise<OAuthState | null> {
-    const data = await this.read();
-    const stateData = data.oauthStates[state] ?? null;
-
-    if (!stateData) {
-      return null;
-    }
-
-    delete data.oauthStates[state];
-    await this.write(data);
-    return stateData;
-  }
-
-  async savePendingReview(request: PendingReviewRequest): Promise<void> {
-    const data = await this.read();
-    data.pendingReviews[request.chatUserId] = request;
-    await this.write(data);
-  }
-
-  async consumePendingReview(chatUserId: string): Promise<PendingReviewRequest | null> {
-    const data = await this.read();
-    const pending = data.pendingReviews[chatUserId] ?? null;
-
-    if (!pending) {
-      return null;
-    }
-
-    delete data.pendingReviews[chatUserId];
-    await this.write(data);
-    return pending;
-  }
-
-  private async read(): Promise<StorageData> {
-    try {
-      const raw = await readFile(this.path, "utf8");
-      const parsed = JSON.parse(raw) as Partial<StorageData>;
-      return {
-        tokens: parsed.tokens ?? {},
-        oauthStates: parsed.oauthStates ?? {},
-        pendingReviews: parsed.pendingReviews ?? {}
-      };
-    } catch (error) {
-      if (isMissingFile(error)) {
-        return { tokens: {}, oauthStates: {}, pendingReviews: {} };
-      }
-      throw error;
-    }
-  }
-
-  private async write(data: StorageData): Promise<void> {
-    await mkdir(dirname(this.path), { recursive: true });
-    const tmpPath = `${this.path}.tmp`;
-    await writeFile(tmpPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
-    await rename(tmpPath, this.path);
-  }
-}
-
-function isMissingFile(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "ENOENT"
-  );
-}
-
 function createPrismaTokenStorage(config: AppConfig): TokenStorage {
-  if (!config.databaseUrl) {
-    throw new Error("DATABASE_URL is required when STORAGE_DRIVER=prisma");
-  }
-
   if (!prismaClient) {
     const adapter = new PrismaPg({ connectionString: config.databaseUrl });
     prismaClient = new PrismaClient({
