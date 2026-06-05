@@ -111,18 +111,14 @@ test("/info returns bot version and review command help", async () => {
   const handleChatEvent = createChatEventHandler();
 
   const response = await handleChatEvent(config, storage, {
-    chat: {
-      appCommandPayload: {
-        appCommandMetadata: {
-          appCommandId: 2
-        }
-      }
+    appCommandMetadata: {
+      appCommandId: 2
     }
   });
 
   const text = getResponseText(response);
   assert.match(text, /^\/info/m);
-  assert.match(text, /Version: 0\.1\.0/);
+  assert.match(text, /Version: 0\.1\.1/);
   assert.match(text, /Available commands:/);
   assert.match(text, /\/review/);
   assert.match(text, /opens a form|открывает форму/i);
@@ -139,18 +135,122 @@ test("/check-auth returns auth diagnostics report", async () => {
     user: {
       name: "users/123"
     },
-    chat: {
-      appCommandPayload: {
-        appCommandMetadata: {
-          appCommandId: 3
-        }
-      }
+    appCommandMetadata: {
+      appCommandId: 3
     }
   });
 
   const text = getResponseText(response);
   assert.match(text, /Auth check/);
   assert.match(text, /Chat token probe: OK/);
+});
+
+test("/info works for standalone slash command payload", async () => {
+  const handleChatEvent = createChatEventHandler();
+
+  const response = await handleChatEvent(config, storage, {
+    type: "MESSAGE",
+    user: {
+      name: "users/123"
+    },
+    message: {
+      text: "/info",
+      slashCommand: {
+        commandId: "2"
+      }
+    },
+    appCommandMetadata: {
+      appCommandId: 2,
+      appCommandType: "SLASH_COMMAND"
+    },
+    space: {
+      name: "spaces/STANDALONE"
+    }
+  } as never);
+
+  const text = getResponseText(response);
+  assert.match(text, /^\/info/m);
+  assert.match(text, /Version: 0\.1\.1/);
+  assert.match(text, /\/review/);
+});
+
+test("/check-auth works for standalone slash command payload", async () => {
+  const handleChatEvent = createChatEventHandler({
+    async buildAuthCheckReport() {
+      return "Auth check (/check-auth)\n\n- Chat token probe: OK";
+    }
+  });
+
+  const response = await handleChatEvent(config, storage, {
+    type: "MESSAGE",
+    user: {
+      name: "users/123"
+    },
+    space: {
+      name: "spaces/STANDALONE"
+    },
+    message: {
+      text: "/check-auth",
+      slashCommand: {
+        commandId: "3"
+      }
+    },
+    appCommandMetadata: {
+      appCommandId: 3,
+      appCommandType: "SLASH_COMMAND"
+    }
+  } as never);
+
+  const text = getResponseText(response);
+  assert.match(text, /Auth check/);
+  assert.match(text, /Chat token probe: OK/);
+});
+
+test("install event returns welcome card with commands and auth button", async () => {
+  let authChatUserId = "";
+  const handleChatEvent = createChatEventHandler({
+    async buildAuthUrl(_config, _storage, chatUserId) {
+      authChatUserId = chatUserId;
+      return "https://example.test/auth/start";
+    }
+  });
+
+  const response = await handleChatEvent(config, storage, {
+    type: "ADDED_TO_SPACE",
+    user: {
+      name: "users/123"
+    },
+    space: {
+      name: "spaces/AAA"
+    }
+  });
+
+  const card = getActionResponseCard(response);
+  assert.equal(authChatUserId, "users/123");
+  assert.equal(card.header?.title, "Performance Review Bot");
+  assert.match(getCardText(card), /\/info/);
+  assert.match(getCardText(card), /\/review/);
+  assert.match(getCardButtonText(card), /Подключить Google/);
+});
+
+test("install event without user returns clear error and does not build auth url", async () => {
+  let buildAuthUrlCalled = false;
+  const handleChatEvent = createChatEventHandler({
+    async buildAuthUrl() {
+      buildAuthUrlCalled = true;
+      return "https://example.test/auth/start";
+    }
+  });
+
+  const response = await handleChatEvent(config, storage, {
+    type: "ADDED_TO_SPACE",
+    space: {
+      name: "spaces/AAA"
+    }
+  });
+
+  assert.equal(buildAuthUrlCalled, false);
+  assert.match(getResponseText(response), /Не удалось определить пользователя Google Chat/);
 });
 
 test("/review opens employee lookup card", async () => {
@@ -160,12 +260,8 @@ test("/review opens employee lookup card", async () => {
     user: {
       name: "users/123"
     },
-    chat: {
-      appCommandPayload: {
-        appCommandMetadata: {
-          appCommandId: 1
-        }
-      }
+    appCommandMetadata: {
+      appCommandId: 1
     }
   });
 
@@ -197,60 +293,94 @@ test("/review opens employee lookup card", async () => {
   assert.equal(widgets.length, 1);
 });
 
-test("/review sends auth message without closing dialog when reviewer token is missing", async () => {
+test("/review returns auth card when reviewer token is missing", async () => {
   const emptyStorage: TokenStorage = {
     ...storage,
     async get() {
       return null;
     }
   };
-  const sentMessages: string[] = [];
   const handleChatEvent = createChatEventHandler({
     async buildAuthUrl() {
       return "https://example.test/auth/start";
     },
     async sendChatMessage(_config, spaceName, text) {
-      assert.equal(spaceName, "spaces/AAA");
-      sentMessages.push(text);
+      throw new Error(`should not send auth text message to ${spaceName}: ${text}`);
     }
   });
 
   const response = await handleChatEvent(config, emptyStorage, reviewCommandEvent());
 
-  assert.deepEqual(response, {});
-  assert.match(sentMessages[0] ?? "", /https:\/\/example\.test\/auth\/start/);
-  assert.match(sentMessages[0] ?? "", /подключить Google-аккаунт ревьюера/i);
+  const card = getFirstCard(response);
+  assert.equal(card.header?.title, "Нужно подключить Google");
+  assert.match(getCardText(card), /подключите Google-аккаунт ревьюера/i);
+  assert.match(getCardButtonText(card), /Подключить Google/i);
 });
 
-test("resolveChatSpaceName reads space from appCommandPayload", async () => {
+test("/review without token returns auth card for standalone command event", async () => {
   const emptyStorage: TokenStorage = {
     ...storage,
     async get() {
       return null;
     }
   };
-  const sentSpaces: string[] = [];
   const handleChatEvent = createChatEventHandler({
     async buildAuthUrl() {
       return "https://example.test/oauth";
     },
     async sendChatMessage(_config, spaceName) {
-      sentSpaces.push(spaceName);
+      throw new Error(`should not send auth text message to ${spaceName}`);
     }
   });
 
-  await handleChatEvent(config, emptyStorage, {
+  const response = await handleChatEvent(config, emptyStorage, {
     user: { name: "users/123" },
-    chat: {
-      appCommandPayload: {
-        appCommandMetadata: { appCommandId: 1 },
-        space: { name: "spaces/from-command" }
-      }
+    space: {
+      name: "spaces/from-command"
     },
-    commonEventObject: {}
+    appCommandMetadata: { appCommandId: 1 }
   });
 
-  assert.deepEqual(sentSpaces, ["spaces/from-command"]);
+  const card = getFirstCard(response);
+  assert.equal(card.header?.title, "Нужно подключить Google");
+  assert.match(getCardButtonText(card), /Подключить Google/i);
+});
+
+test("/review without token returns auth card for standalone slash command payload", async () => {
+  const emptyStorage: TokenStorage = {
+    ...storage,
+    async get() {
+      return null;
+    }
+  };
+  const handleChatEvent = createChatEventHandler({
+    async buildAuthUrl() {
+      return "https://example.test/oauth";
+    },
+    async sendChatMessage(_config, spaceName) {
+      throw new Error(`should not send auth text message to ${spaceName}`);
+    }
+  });
+
+  const response = await handleChatEvent(config, emptyStorage, {
+    type: "MESSAGE",
+    user: { name: "users/123" },
+    space: { name: "spaces/STANDALONE" },
+    message: {
+      text: "/review",
+      slashCommand: {
+        commandId: "1"
+      }
+    },
+    appCommandMetadata: {
+      appCommandId: 1,
+      appCommandType: "SLASH_COMMAND"
+    }
+  } as never);
+
+  const card = getFirstCard(response);
+  assert.equal(card.header?.title, "Нужно подключить Google");
+  assert.match(getCardButtonText(card), /Подключить Google/i);
 });
 
 test("/review employee suggestions close dialog and send auth message when token is missing", async () => {
@@ -276,10 +406,7 @@ test("/review employee suggestions close dialog and send auth message when token
     employeeSuggestionsEvent("ivan", { spaceName: "spaces/AAA" })
   );
 
-  const action = response.action as {
-    navigations?: Array<{ endNavigation?: { action?: string } }>;
-  };
-  assert.equal(action.navigations?.[0]?.endNavigation?.action, "CLOSE_DIALOG");
+  assert.deepEqual(response, {});
   assert.match(sentMessages[0] ?? "", /https:\/\/example\.test\/oauth/);
 });
 
@@ -312,10 +439,7 @@ test("/review employee suggestions close dialog and send auth message on invalid
   );
 
   assert.equal(deleted, true);
-  const action = response.action as {
-    navigations?: Array<{ endNavigation?: { action?: string } }>;
-  };
-  assert.equal(action.navigations?.[0]?.endNavigation?.action, "CLOSE_DIALOG");
+  assert.deepEqual(response, {});
   assert.match(sentMessages[0] ?? "", /https:\/\/example\.test\/oauth/);
 });
 
@@ -373,16 +497,13 @@ test("/review submit closes dialog and sends auth message when previous review l
   const response = await handleChatEvent(
     config,
     trackingStorage,
-    reviewSubmitEvent({ commonEventObject: true })
+    reviewSubmitEvent()
   );
 
   assert.equal(deleted, true);
-  const action = response.action as {
-    navigations?: Array<{ endNavigation?: { action?: string } }>;
-  };
-  assert.equal(action.navigations?.[0]?.endNavigation?.action, "CLOSE_DIALOG");
-  assert.match(sentMessages[0] ?? "", /https:\/\/example\.test\/oauth/);
-  assert.match(sentMessages[0] ?? "", /подключить Google-аккаунт ревьюера/i);
+  const card = getFirstCard(response);
+  assert.equal(card.header?.title, "Нужно подключить Google");
+  assert.equal(sentMessages.length, 0);
 });
 
 test("/review employee suggestions return matching directory employees", async () => {
@@ -403,21 +524,19 @@ test("/review employee suggestions return matching directory employees", async (
   const response = await handleChatEvent(config, storage, employeeSuggestionsEvent("ivan"));
 
   assert.deepEqual(response, {
-    action: {
-      modifyOperations: [
-        {
-          updateWidget: {
-            selectionInputWidgetSuggestions: {
-              suggestions: [
-                {
-                  text: "Ivan Petrov (ivan.petrov@fuse8.online)",
-                  value: "ivan.petrov@fuse8.online|Ivan Petrov"
-                }
-              ]
+    actionResponse: {
+      type: "UPDATE_WIDGET",
+      updatedWidget: {
+        widget: "employeeFolder",
+        suggestions: {
+          items: [
+            {
+              text: "Ivan Petrov (ivan.petrov@fuse8.online)",
+              value: "ivan.petrov@fuse8.online|Ivan Petrov"
             }
-          }
+          ]
         }
-      ]
+      }
     }
   });
 });
@@ -432,22 +551,45 @@ test("/review employee suggestions show empty-state message when nothing matches
   const response = await handleChatEvent(config, storage, employeeSuggestionsEvent("unknown"));
 
   assert.deepEqual(response, {
-    action: {
-      modifyOperations: [
-        {
-          updateWidget: {
-            selectionInputWidgetSuggestions: {
-              suggestions: [
-                {
-                  text: "Сотрудник не найден",
-                  bottomText: "Попробуйте поиск по другому параметру или на английском языке",
-                  value: "__no_results__"
-                }
-              ]
+    actionResponse: {
+      type: "UPDATE_WIDGET",
+      updatedWidget: {
+        widget: "employeeFolder",
+        suggestions: {
+          items: [
+            {
+              text: "Сотрудник не найден",
+              bottomText: "Попробуйте поиск по другому параметру или на английском языке",
+              value: "__no_results__"
             }
-          }
+          ]
         }
-      ]
+      }
+    }
+  });
+});
+
+test("/review employee suggestions ignore empty autocomplete query", async () => {
+  let searchCalled = false;
+  const handleChatEvent = createHandler({
+    async searchDirectoryEmployees() {
+      searchCalled = true;
+      return [];
+    }
+  });
+
+  const response = await handleChatEvent(config, storage, employeeSuggestionsEvent(""));
+
+  assert.equal(searchCalled, false);
+  assert.deepEqual(response, {
+    actionResponse: {
+      type: "UPDATE_WIDGET",
+      updatedWidget: {
+        widget: "employeeFolder",
+        suggestions: {
+          items: []
+        }
+      }
     }
   });
 });
@@ -481,21 +623,19 @@ test("/review employee suggestions transliterate cyrillic query before directory
   const response = await handleChatEvent(config, storage, employeeSuggestionsEvent("Андрей"));
 
   assert.deepEqual(response, {
-    action: {
-      modifyOperations: [
-        {
-          updateWidget: {
-            selectionInputWidgetSuggestions: {
-              suggestions: [
-                {
-                  text: "Andrey Stepanov (andrey.stepanov@fuse8.online)",
-                  value: "andrey.stepanov@fuse8.online|Andrey Stepanov"
-                }
-              ]
+    actionResponse: {
+      type: "UPDATE_WIDGET",
+      updatedWidget: {
+        widget: "employeeFolder",
+        suggestions: {
+          items: [
+            {
+              text: "Andrey Stepanov (andrey.stepanov@fuse8.online)",
+              value: "andrey.stepanov@fuse8.online|Andrey Stepanov"
             }
-          }
+          ]
         }
-      ]
+      }
     }
   });
 });
@@ -826,7 +966,7 @@ test("/review submit creates a test folder and returns its link", async () => {
   ]);
 });
 
-test("/review submit sends result to buttonClickedPayload space when chat space is missing", async () => {
+test("/review submit skips result delivery when space name is missing", async () => {
   const sentMessages: Array<{ spaceName: string; text: string }> = [];
   const handleChatEvent = createHandler({
     async createReviewFolder() {
@@ -844,50 +984,12 @@ test("/review submit sends result to buttonClickedPayload space when chat space 
   await handleChatEvent(
     config,
     storage,
-    reviewSubmitEvent({ chatSpaceName: null, buttonClickedPayloadSpaceName: "spaces/FALLBACK" })
-  );
-
-  await flushBackgroundTasks();
-
-  assert.equal(sentMessages.length, 2);
-  assert.equal(sentMessages[0]?.text, REVIEW_WORKFLOW_ACK_MESSAGE);
-  assert.equal(sentMessages[1]?.spaceName, "spaces/FALLBACK");
-});
-
-test("/review submit skips result delivery when space name is missing", async () => {
-  let sendCalled = false;
-  const handleChatEvent = createHandler({
-    async createReviewFolder() {
-      return {
-        id: "folder-id",
-        name: "2026.06",
-        webViewLink: "https://drive.google.com/folder"
-      };
-    },
-    async sendChatMessage() {
-      sendCalled = true;
-    }
-  });
-
-  const response = await handleChatEvent(
-    config,
-    storage,
     reviewSubmitEvent({ chatSpaceName: null })
   );
 
-  assert.equal(sendCalled, false);
-  assert.deepEqual(response.actionResponse, {
-    type: "DIALOG",
-    dialogAction: {
-      actionStatus: {
-        statusCode: "OK",
-        userFacingMessage: ""
-      }
-    }
-  });
-
   await flushBackgroundTasks();
-  assert.equal(sendCalled, false);
+
+  assert.equal(sentMessages.length, 0);
 });
 
 test("/review submit returns ack before background workflow runs", async () => {
@@ -1015,10 +1117,10 @@ test("/review submit includes only internal form link when client form is not ne
     }
   });
 
-  const response = await handleChatEvent(
+  await handleChatEvent(
     config,
     storage,
-    reviewSubmitEvent({ needsClientForm: false, commonEventObject: true })
+    reviewSubmitEvent({ needsClientForm: false })
   );
   await flushBackgroundTasks();
 
@@ -1040,7 +1142,7 @@ test("/review submit asks to configure internal form template when it is missing
   const response = await handleChatEvent(
     { ...config, internalReviewFormTemplateId: "" },
     storage,
-    reviewSubmitEvent({ commonEventObject: true })
+    reviewSubmitEvent()
   );
   const text = getResponseText(response);
 
@@ -1057,7 +1159,7 @@ test("/review submit asks to configure client form template when checkbox is sel
   const response = await handleChatEvent(
     { ...config, clientReviewFormTemplateId: "" },
     storage,
-    reviewSubmitEvent({ commonEventObject: true })
+    reviewSubmitEvent()
   );
   const text = getResponseText(response);
 
@@ -1123,16 +1225,14 @@ test("/review submit asks to confirm when previous review is missing", async () 
   const response = await handleChatEvent(
     config,
     pendingStorage,
-    reviewSubmitEvent({ commonEventObject: true })
+    reviewSubmitEvent()
   );
 
   assert.equal(savedPending.length, 1);
   assert.equal(savedPending[0]?.fullName, "Ivan Petrov");
   assert.equal(savedPending[0]?.reviewMonth, "2026.06");
-  const action = response.action as {
-    navigations?: Array<{ pushCard?: { header?: { title?: string } } }>;
-  };
-  assert.deepEqual(action.navigations?.[0]?.pushCard?.header, {
+  const card = getFirstCard(response);
+  assert.deepEqual(card.header, {
     title: "Предыдущее ревью не найдено"
   });
 });
@@ -1177,15 +1277,17 @@ test("/review submit continues without previous review after confirmation", asyn
   const response = await handleChatEvent(
     config,
     pendingStorage,
-    confirmWithoutPreviousEvent({ commonEventObject: true })
+    confirmWithoutPreviousEvent()
   );
-  const action = response.action as {
-    navigations?: Array<{ endNavigation?: { action?: string } }>;
-    notification?: { text?: string };
-  };
-  assert.equal(action.navigations?.[0]?.endNavigation?.action, "CLOSE_DIALOG");
-  assert.equal(action.notification?.text, undefined);
-  assert.equal((response as { actionResponse?: unknown }).actionResponse, undefined);
+  assert.deepEqual(response.actionResponse, {
+    type: "DIALOG",
+    dialogAction: {
+      actionStatus: {
+        statusCode: "OK",
+        userFacingMessage: ""
+      }
+    }
+  });
 
   await flushBackgroundTasks();
 
@@ -1198,7 +1300,7 @@ test("/review submit continues without previous review after confirmation", asyn
   assert.equal(sentMessages.length, 2);
 });
 
-test("/review submit sends Drive error to Chat via bot when commonEventObject is present", async () => {
+test("/review submit sends Drive error to Chat via bot", async () => {
   const sentMessages: string[] = [];
   const handleChatEvent = createHandler({
     async createReviewFolder() {
@@ -1209,10 +1311,10 @@ test("/review submit sends Drive error to Chat via bot when commonEventObject is
     }
   });
 
-  const response = await handleChatEvent(
+  await handleChatEvent(
     config,
     storage,
-    reviewSubmitEvent({ commonEventObject: true })
+    reviewSubmitEvent()
   );
   await flushBackgroundTasks();
 
@@ -1243,34 +1345,24 @@ test("/review submit returns user-facing text when Drive folder creation fails",
 });
 
 function confirmWithoutPreviousEvent(
-  overrides: { commonEventObject?: boolean; chatSpaceName?: string | null } = {}
+  overrides: { chatSpaceName?: string | null } = {}
 ): ChatEvent {
   const event: ChatEvent = {
     user: {
       name: "users/123"
     },
-    chat: {
-      buttonClickedPayload: {
-        isDialogEvent: true,
-        dialogEventType: "SUBMIT_DIALOG"
-      }
-    },
-    commonEventObject: {
+    isDialogEvent: true,
+    dialogEventType: "SUBMIT_DIALOG",
+    common: {
+      invokedFunction: "https://example.test/google-chat/events",
       parameters: {
         actionName: "confirmReviewWithoutPrevious"
       }
-    }
+    },
   };
 
-  if (!overrides.commonEventObject) {
-    delete event.commonEventObject;
-    event.common = {
-      invokedFunction: "confirmReviewWithoutPrevious"
-    };
-  }
-
   if (overrides.chatSpaceName !== null) {
-    event.chat!.space = {
+    event.space = {
       name: overrides.chatSpaceName ?? "spaces/AAA"
     };
   }
@@ -1283,16 +1375,11 @@ function reviewCommandEvent(spaceName = "spaces/AAA"): ChatEvent {
     user: {
       name: "users/123"
     },
-    commonEventObject: {},
-    chat: {
-      appCommandPayload: {
-        appCommandMetadata: {
-          appCommandId: 1
-        },
-        space: {
-          name: spaceName
-        }
-      }
+    appCommandMetadata: {
+      appCommandId: 1
+    },
+    space: {
+      name: spaceName
     }
   };
 }
@@ -1305,12 +1392,13 @@ function employeeSuggestionsEvent(
     user: {
       name: "users/123"
     },
-    chat: {
-      widgetUpdatedPayload: overrides.spaceName
-        ? { space: { name: overrides.spaceName } }
-        : {}
+    appCommandMetadata: {
+      appCommandId: 1,
+      appCommandType: "SLASH_COMMAND"
     },
-    commonEventObject: {
+    space: overrides.spaceName ? { name: overrides.spaceName } : undefined,
+    common: {
+      invokedFunction: "https://example.test/google-chat/events",
       parameters: {
         autocomplete_widget_query: query
       }
@@ -1326,12 +1414,9 @@ function employeeSelectEvent(
     user: {
       name: "users/123"
     },
-    chat: {
-      buttonClickedPayload: {
-        isDialogEvent: true
-      }
-    },
-    commonEventObject: {
+    isDialogEvent: true,
+    common: {
+      invokedFunction: "https://example.test/google-chat/events",
       parameters: {
         actionName: "selectEmployee"
       },
@@ -1375,13 +1460,10 @@ function employeeCheckEvent(
     user: {
       name: "users/123"
     },
-    chat: {
-      buttonClickedPayload: {
-        isDialogEvent: true,
-        dialogEventType: "SUBMIT_DIALOG"
-      }
-    },
-    commonEventObject: {
+    isDialogEvent: true,
+    dialogEventType: "SUBMIT_DIALOG",
+    common: {
+      invokedFunction: "https://example.test/google-chat/events",
       parameters: {
         actionName: "checkEmployeeFolder"
       },
@@ -1411,30 +1493,20 @@ function reviewSubmitEvent(
     employeeEmail?: string;
     meetingTime?: string;
     needsClientForm?: boolean;
-    commonEventObject?: boolean;
     chatSpaceName?: string | null;
-    buttonClickedPayloadSpaceName?: string;
   } = {}
 ): ChatEvent {
   const event: ChatEvent = {
     user: {
       name: "users/123"
     },
-    chat: {
-      buttonClickedPayload: {
-        isDialogEvent: true,
-        dialogEventType: "SUBMIT_DIALOG",
-        ...(overrides.buttonClickedPayloadSpaceName
-          ? {
-            space: {
-              name: overrides.buttonClickedPayloadSpaceName
-            }
-          }
-          : {})
-      }
-    },
+    isDialogEvent: true,
+    dialogEventType: "SUBMIT_DIALOG",
     common: {
-      invokedFunction: "submitReview",
+      invokedFunction: "https://example.test/google-chat/events",
+      parameters: {
+        actionName: "submitReview"
+      },
       formInputs: {
         fullName: {
           stringInputs: {
@@ -1466,17 +1538,8 @@ function reviewSubmitEvent(
   };
 
   if (overrides.chatSpaceName !== null) {
-    event.chat!.space = {
+    event.space = {
       name: overrides.chatSpaceName ?? "spaces/AAA"
-    };
-  }
-
-  if (overrides.commonEventObject) {
-    event.commonEventObject = {
-      formInputs: event.common?.formInputs,
-      parameters: {
-        actionName: "submitReview"
-      }
     };
   }
 
@@ -1487,23 +1550,6 @@ function getUpdatedCard(response: Record<string, unknown>): {
   header?: { title?: string };
   sections?: Array<{ widgets?: unknown[] }>;
 } {
-  const action = response.action as {
-    navigations?: Array<{ updateCard?: { header?: { title?: string }; sections?: Array<{ widgets?: unknown[] }> } }>;
-  };
-  return action?.navigations?.[0]?.updateCard ?? {};
-}
-
-function getFirstCard(response: Record<string, unknown>): {
-  header?: { title?: string };
-  sections?: Array<{ widgets?: unknown[] }>;
-} {
-  const action = response.action as {
-    navigations?: Array<{ pushCard?: { header?: { title?: string }; sections?: Array<{ widgets?: unknown[] }> } }>;
-  };
-  if (action?.navigations?.[0]?.pushCard) {
-    return action.navigations[0].pushCard;
-  }
-
   const actionResponse = response.actionResponse as {
     dialogAction?: {
       dialog?: {
@@ -1512,6 +1558,51 @@ function getFirstCard(response: Record<string, unknown>): {
     };
   };
   return actionResponse?.dialogAction?.dialog?.body ?? {};
+}
+
+function getFirstCard(response: Record<string, unknown>): {
+  header?: { title?: string };
+  sections?: Array<{ widgets?: unknown[] }>;
+} {
+  const actionResponse = response.actionResponse as {
+    dialogAction?: {
+      dialog?: {
+        body?: { header?: { title?: string }; sections?: Array<{ widgets?: unknown[] }> };
+      };
+    };
+  };
+  return actionResponse?.dialogAction?.dialog?.body ?? {};
+}
+
+function getActionResponseCard(response: Record<string, unknown>): {
+  header?: { title?: string };
+  sections?: Array<{ widgets?: unknown[] }>;
+} {
+  const cards = response.cardsV2 as Array<{
+    card?: { header?: { title?: string }; sections?: Array<{ widgets?: unknown[] }> };
+  }>;
+  return cards?.[0]?.card ?? {};
+}
+
+function getCardText(card: { sections?: Array<{ widgets?: unknown[] }> }): string {
+  return (card.sections ?? [])
+    .flatMap((section) => section.widgets ?? [])
+    .map((widget) => {
+      const textParagraph = (widget as { textParagraph?: { text?: string } }).textParagraph;
+      return textParagraph?.text ?? "";
+    })
+    .join("\n");
+}
+
+function getCardButtonText(card: { sections?: Array<{ widgets?: unknown[] }> }): string {
+  return (card.sections ?? [])
+    .flatMap((section) => section.widgets ?? [])
+    .flatMap((widget) => {
+      const buttonList = (widget as { buttonList?: { buttons?: Array<{ text?: string }> } }).buttonList;
+      return buttonList?.buttons ?? [];
+    })
+    .map((button) => button.text ?? "")
+    .join("\n");
 }
 
 function getResponseText(response: Record<string, unknown>): string {
@@ -1537,25 +1628,5 @@ function getResponseText(response: Record<string, unknown>): string {
   if (actionResponse?.dialogAction?.actionStatus?.userFacingMessage) {
     return actionResponse.dialogAction.actionStatus.userFacingMessage;
   }
-
-  const hostAppDataAction = response.hostAppDataAction as {
-    chatDataAction?: {
-      dialogAction?: {
-        actionStatus?: {
-          userFacingMessage?: string;
-        };
-      };
-      createMessageAction?: {
-        message?: {
-          text?: string;
-        };
-      };
-    };
-  };
-
-  if (hostAppDataAction?.chatDataAction?.dialogAction?.actionStatus?.userFacingMessage) {
-    return hostAppDataAction.chatDataAction.dialogAction.actionStatus.userFacingMessage;
-  }
-
-  return hostAppDataAction?.chatDataAction?.createMessageAction?.message?.text ?? "";
+  return "";
 }

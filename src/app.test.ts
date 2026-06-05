@@ -73,7 +73,6 @@ async function invokeApp(
   method: string,
   url: string
 ): Promise<{ statusCode: number; headers: Record<string, string>; body: string }> {
-  const [path, query = ""] = url.split("?");
   const req = new EventEmitter() as EventEmitter & {
     method: string;
     url: string;

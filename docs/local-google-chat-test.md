@@ -2,7 +2,7 @@
 
 Нужны: Node 24, pnpm, HTTPS tunnel (`pnpm tunnel` / cloudflared), OAuth client, Drive root folder, SA key для Chat.
 
-## Env (`.env.local`)
+## Env (`.env`)
 
 ```env
 STORAGE_DRIVER=local
@@ -25,9 +25,11 @@ pnpm dev:local    # терминал 1
 pnpm tunnel       # терминал 2 → скопировать HTTPS URL
 ```
 
-Обновить `APP_BASE_URL` и `GOOGLE_REDIRECT_URI` в `.env.local`, перезапустить `dev:local`.
+Обновить `APP_BASE_URL` и `GOOGLE_REDIRECT_URI` в `.env`, перезапустить `dev:local`.
 
 ## Google Cloud / Chat app
+
+Подробная настройка отдельного локального Chat app: [google-chat-bot-setup.md](google-chat-bot-setup.md).
 
 - OAuth redirect: `https://<tunnel>/auth/google/callback`
 - Chat App URL: `https://<tunnel>/google-chat/events`

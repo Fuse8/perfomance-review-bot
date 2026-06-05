@@ -24,9 +24,10 @@ const SUBMIT_FUNCTION = "submitReview";
 const SELECT_EMPLOYEE_FUNCTION = "selectEmployee";
 const CHECK_EMPLOYEE_FOLDER_FUNCTION = "checkEmployeeFolder";
 const CONFIRM_WITHOUT_PREVIOUS_FUNCTION = "confirmReviewWithoutPrevious";
+const ADDED_TO_SPACE_EVENT = "ADDED_TO_SPACE";
 const REVIEW_COMMAND_ID = 1;
 const INFO_COMMAND_ID = 2;
-export const CHECK_AUTH_COMMAND_ID = 3;
+const CHECK_AUTH_COMMAND_ID = 3;
 const REVIEW_WORKFLOW_ACK_MESSAGE = "Запустил подготовку PR. Результат пришлю сюда.";
 const BOT_VERSION = readBotVersion();
 
@@ -126,37 +127,42 @@ export function createChatEventHandler(deps: Partial<ChatEventHandlerDeps> = {})
     storage: TokenStorage,
     event: ChatEvent
   ): Promise<Record<string, unknown>> {
-    const chatUserId = event.user?.name ?? event.chat?.user?.name;
-    const appCommandId = event.chat?.appCommandPayload?.appCommandMetadata?.appCommandId;
-    const actionName =
-      event.common?.invokedFunction ?? event.commonEventObject?.parameters?.actionName;
-    const formInputs = event.common?.formInputs ?? event.commonEventObject?.formInputs ?? {};
+    const chatUserId = event.user?.name;
+    const appCommandId = resolveAppCommandId(event);
+    const invokedFunction = event.common?.invokedFunction;
+    const actionName = resolveActionName(event);
+    const formInputs = event.common?.formInputs ?? {};
 
     logChatEvent("received", {
       appCommandId,
       actionName,
+      invokedFunction,
       hasChatUserId: Boolean(chatUserId),
       formInputKeys: Object.keys(formInputs),
-      dialogEventType: event.chat?.buttonClickedPayload?.dialogEventType,
-      isDialogEvent: event.chat?.buttonClickedPayload?.isDialogEvent,
-      hasCommonEventObject: Boolean(event.commonEventObject),
+      dialogEventType: event.dialogEventType,
+      isDialogEvent: event.isDialogEvent,
       spaceName: resolveChatSpaceName(event)
     });
 
-    if (event.chat?.widgetUpdatedPayload) {
+    if (event.type === ADDED_TO_SPACE_EVENT) {
+      logChatEvent("route.addedToSpace");
+      return handleAddedToSpace(config, storage, chatUserId, resolvedDeps);
+    }
+
+    if (isEmployeeSuggestionsEvent(config, event, invokedFunction)) {
       logChatEvent("route.employeeSuggestions");
       return handleEmployeeSuggestions(config, storage, chatUserId, event, resolvedDeps);
     }
 
     if (appCommandId === INFO_COMMAND_ID) {
       logChatEvent("route.info");
-      return addOnTextResponse(buildInfoMessage());
+      return textResponse(buildInfoMessage());
     }
 
     if (appCommandId === CHECK_AUTH_COMMAND_ID) {
       logChatEvent("route.checkAuth");
       const report = await resolvedDeps.buildAuthCheckReport(config, storage, chatUserId);
-      return addOnTextResponse(report);
+      return textResponse(report);
     }
 
     if (!chatUserId) {
@@ -164,41 +170,56 @@ export function createChatEventHandler(deps: Partial<ChatEventHandlerDeps> = {})
       return textResponse("Не удалось определить пользователя Google Chat.");
     }
 
-  if (actionName === SUBMIT_FUNCTION) {
-    logChatEvent("route.submit");
-    return handleReviewSubmit(config, storage, chatUserId, event, resolvedDeps);
-  }
-
-  if (actionName === CHECK_EMPLOYEE_FOLDER_FUNCTION) {
-    logChatEvent("route.checkEmployeeFolder");
-    return handleEmployeeFolderCheck(config, storage, chatUserId, event, resolvedDeps);
-  }
-
-  if (actionName === SELECT_EMPLOYEE_FUNCTION) {
-    logChatEvent("route.selectEmployee");
-    return handleEmployeeSelect(config, event);
-  }
-
-  if (actionName === CONFIRM_WITHOUT_PREVIOUS_FUNCTION) {
-    logChatEvent("route.confirmWithoutPrevious");
-    return handleConfirmReviewWithoutPrevious(config, storage, chatUserId, event, resolvedDeps);
-  }
-
-  if (appCommandId === REVIEW_COMMAND_ID) {
-    logChatEvent("route.reviewDialog");
-    const token = await storage.get(chatUserId);
-    if (!token) {
-      return respondReviewerAuthRequired(config, storage, chatUserId, resolvedDeps, event, "addon_dialog");
+    if (actionName === SUBMIT_FUNCTION) {
+      logChatEvent("route.submit");
+      return handleReviewSubmit(config, storage, chatUserId, event, resolvedDeps);
     }
-    return addOnDialogResponse(employeeLookupCard(config));
-  }
 
-  logChatEvent("route.unknownCommand", { appCommandId, actionName });
-  return textResponse("Неизвестная команда Google Chat.");
+    if (actionName === CHECK_EMPLOYEE_FOLDER_FUNCTION) {
+      logChatEvent("route.checkEmployeeFolder");
+      return handleEmployeeFolderCheck(config, storage, chatUserId, event, resolvedDeps);
+    }
+
+    if (actionName === SELECT_EMPLOYEE_FUNCTION) {
+      logChatEvent("route.selectEmployee");
+      return handleEmployeeSelect(config, event);
+    }
+
+    if (actionName === CONFIRM_WITHOUT_PREVIOUS_FUNCTION) {
+      logChatEvent("route.confirmWithoutPrevious");
+      return handleConfirmReviewWithoutPrevious(config, storage, chatUserId, event, resolvedDeps);
+    }
+
+    if (appCommandId === REVIEW_COMMAND_ID) {
+      logChatEvent("route.reviewDialog");
+      const token = await storage.get(chatUserId);
+      if (!token) {
+        return respondReviewerAuthRequired(config, storage, chatUserId, resolvedDeps, event, "dialog_card");
+      }
+      return dialogResponse(employeeLookupCard(config));
+    }
+
+    logChatEvent("route.unknownCommand", { appCommandId, actionName });
+    return textResponse("Неизвестная команда Google Chat.");
   };
 }
 
 export const handleChatEvent = createChatEventHandler();
+
+async function handleAddedToSpace(
+  config: AppConfig,
+  storage: TokenStorage,
+  chatUserId: string | undefined,
+  deps: ChatEventHandlerDeps
+): Promise<Record<string, unknown>> {
+  if (!chatUserId) {
+    logChatEvent("addedToSpace.missingUser");
+    return textResponse("Не удалось определить пользователя Google Chat.");
+  }
+
+  const authUrl = await deps.buildAuthUrl(config, storage, chatUserId);
+  return actionResponseCard(welcomeCard(authUrl));
+}
 
 function buildInfoMessage(): string {
   return [
@@ -228,13 +249,18 @@ async function handleEmployeeSuggestions(
     return employeeSuggestionsResponse([]);
   }
 
+  const rawQuery = event.common?.parameters?.autocomplete_widget_query ?? "";
+  if (!rawQuery.trim()) {
+    logChatEvent("employeeSuggestions.emptyQuery");
+    return employeeSuggestionsResponse([]);
+  }
+
   const token = await storage.get(chatUserId);
   if (!token) {
     logChatEvent("employeeSuggestions.authRequired", { chatUserId });
     return respondReviewerAuthRequired(config, storage, chatUserId, deps, event, "employee_suggestions");
   }
 
-  const rawQuery = event.commonEventObject?.parameters?.autocomplete_widget_query ?? "";
   const query = getDirectorySearchQuery(rawQuery);
   let employees: Array<{ fullName: string; email: string }>;
   try {
@@ -294,17 +320,14 @@ async function handleEmployeeFolderCheck(
   event: ChatEvent,
   deps: ChatEventHandlerDeps
 ): Promise<Record<string, unknown>> {
-  const isAddOnEvent = Boolean(event.chat?.buttonClickedPayload || event.commonEventObject);
-  const isDialogSubmit = event.chat?.buttonClickedPayload?.dialogEventType === "SUBMIT_DIALOG";
-  const inputs = event.common?.formInputs ?? event.commonEventObject?.formInputs ?? {};
+  const isDialogSubmit = event.dialogEventType === "SUBMIT_DIALOG";
+  const inputs = event.common?.formInputs ?? {};
   const manualFullName = getStringInput(inputs.manualFullName).trim();
   const employeeEmail = getStringInput(inputs.employeeEmail).trim().toLowerCase();
 
   if (!manualFullName) {
     return respondReviewMessage(
       isDialogSubmit,
-      isAddOnEvent,
-      event,
       "Укажите имя и фамилию в поле «Имя и фамилия».",
       "INVALID_ARGUMENT"
     );
@@ -313,7 +336,7 @@ async function handleEmployeeFolderCheck(
   const token = await storage.get(chatUserId);
   if (!token) {
     logChatEvent("employeeCheck.authRequired", { chatUserId });
-    return respondReviewerAuthRequired(config, storage, chatUserId, deps, event, "addon_text");
+    return respondReviewerAuthRequired(config, storage, chatUserId, deps, event, "chat_message");
   }
 
   let folder;
@@ -325,7 +348,7 @@ async function handleEmployeeFolderCheck(
         chatUserId,
         message: error instanceof Error ? error.message : String(error)
       });
-      return respondReviewerAuthRequired(config, storage, chatUserId, deps, event, "addon_text", {
+      return respondReviewerAuthRequired(config, storage, chatUserId, deps, event, "chat_message", {
         clearStaleToken: true
       });
     }
@@ -334,14 +357,12 @@ async function handleEmployeeFolderCheck(
   if (!folder) {
     return respondReviewMessage(
       isDialogSubmit,
-      isAddOnEvent,
-      event,
       `Папка сотрудника не найдена: ${manualFullName}`,
       "INVALID_ARGUMENT"
     );
   }
 
-  return updateDialogCard(
+  return dialogResponse(
     reviewFormCard(config, {
       fullName: manualFullName,
       employeeEmail
@@ -353,14 +374,14 @@ function handleEmployeeSelect(
   config: AppConfig,
   event: ChatEvent
 ): Record<string, unknown> {
-  const inputs = event.common?.formInputs ?? event.commonEventObject?.formInputs ?? {};
+  const inputs = event.common?.formInputs ?? {};
   const selectedEmployee = parseEmployeeSelection(getLastStringInput(inputs.employeeFolder));
 
   if (!selectedEmployee) {
-    return updateDialogCard(employeeLookupCard(config));
+    return dialogResponse(employeeLookupCard(config));
   }
 
-  return updateDialogCard(
+  return dialogResponse(
     employeeLookupCard(config, {
       fullName: selectedEmployee.name,
       email: selectedEmployee.id,
@@ -376,9 +397,8 @@ async function handleReviewSubmit(
   event: ChatEvent,
   deps: ChatEventHandlerDeps
 ): Promise<Record<string, unknown>> {
-  const isAddOnEvent = Boolean(event.chat?.buttonClickedPayload || event.commonEventObject);
-  const isDialogSubmit = event.chat?.buttonClickedPayload?.dialogEventType === "SUBMIT_DIALOG";
-  const inputs = event.common?.formInputs ?? event.commonEventObject?.formInputs ?? {};
+  const isDialogSubmit = event.dialogEventType === "SUBMIT_DIALOG";
+  const inputs = event.common?.formInputs ?? {};
   logChatEvent("submit.inputs", summarizeFormInputs(inputs));
 
   const parsed = parseReviewRequest(config, inputs);
@@ -386,13 +406,7 @@ async function handleReviewSubmit(
   if (!parsed.ok) {
     logChatEvent("submit.validationFailed", { error: parsed.error });
     if (isDialogSubmit) {
-      if (event.commonEventObject) {
-        return addOnTextResponse(parsed.error);
-      }
       return dialogActionStatusResponse(parsed.error, "INVALID_ARGUMENT");
-    }
-    if (isAddOnEvent) {
-      return addOnTextResponse(parsed.error);
     }
     return actionResponseText(parsed.error);
   }
@@ -400,7 +414,7 @@ async function handleReviewSubmit(
   const configError = validateReviewConfig(config, parsed.value);
   if (configError) {
     logChatEvent("submit.validationFailed", { error: configError });
-    return respondReviewMessage(isDialogSubmit, isAddOnEvent, event, configError, "INVALID_ARGUMENT");
+    return respondReviewMessage(isDialogSubmit, configError, "INVALID_ARGUMENT");
   }
 
   const token = await storage.get(chatUserId);
@@ -412,7 +426,7 @@ async function handleReviewSubmit(
       chatUserId,
       deps,
       event,
-      isAddOnEvent ? "addon_text" : "dialog_card"
+      "dialog_card"
     );
   }
 
@@ -441,12 +455,7 @@ async function handleReviewSubmit(
         createdAt: new Date().toISOString(),
         ...parsed.value
       });
-      return respondReviewDialog(
-        isDialogSubmit,
-        isAddOnEvent,
-        event,
-        confirmWithoutPreviousReviewCard(config)
-      );
+      return respondReviewDialog(isDialogSubmit, confirmWithoutPreviousReviewCard(config));
     }
   } catch (error) {
     if (isOAuthAuthError(error)) {
@@ -460,7 +469,7 @@ async function handleReviewSubmit(
         chatUserId,
         deps,
         event,
-        isAddOnEvent ? "addon_text" : "dialog_card",
+        "dialog_card",
         { clearStaleToken: true }
       );
     }
@@ -471,7 +480,7 @@ async function handleReviewSubmit(
       "Не удалось найти предыдущее ревью.",
       `Ошибка Google Drive: ${message}`
     ].join("\n");
-    return respondReviewMessage(isDialogSubmit, isAddOnEvent, event, errorText, "INVALID_ARGUMENT");
+    return respondReviewMessage(isDialogSubmit, errorText, "INVALID_ARGUMENT");
   }
 
   return startReviewWorkflowFromDialog(
@@ -486,8 +495,7 @@ async function handleReviewSubmit(
       reviewMonth: month,
       previousReviewUrl
     },
-    deps,
-    event
+    deps
   );
 }
 
@@ -498,18 +506,17 @@ async function handleConfirmReviewWithoutPrevious(
   event: ChatEvent,
   deps: ChatEventHandlerDeps
 ): Promise<Record<string, unknown>> {
-  const isAddOnEvent = Boolean(event.chat?.buttonClickedPayload || event.commonEventObject);
-  const isDialogSubmit = event.chat?.buttonClickedPayload?.dialogEventType === "SUBMIT_DIALOG";
+  const isDialogSubmit = event.dialogEventType === "SUBMIT_DIALOG";
   const pending = await storage.consumePendingReview(chatUserId);
 
   if (!pending) {
     const errorText = "Нет сохранённого запроса. Повторите /review и отправьте форму заново.";
-    return respondReviewMessage(isDialogSubmit, isAddOnEvent, event, errorText, "INVALID_ARGUMENT");
+    return respondReviewMessage(isDialogSubmit, errorText, "INVALID_ARGUMENT");
   }
 
   const configError = validateReviewConfig(config, pending);
   if (configError) {
-    return respondReviewMessage(isDialogSubmit, isAddOnEvent, event, configError, "INVALID_ARGUMENT");
+    return respondReviewMessage(isDialogSubmit, configError, "INVALID_ARGUMENT");
   }
 
   const token = await storage.get(chatUserId);
@@ -521,7 +528,7 @@ async function handleConfirmReviewWithoutPrevious(
       chatUserId,
       deps,
       event,
-      isAddOnEvent ? "addon_text" : "dialog_card"
+      "dialog_card"
     );
   }
 
@@ -537,19 +544,17 @@ async function handleConfirmReviewWithoutPrevious(
       reviewMonth: pending.reviewMonth,
       previousReviewUrl: ""
     },
-    deps,
-    event
+    deps
   );
 }
 
 function startReviewWorkflowFromDialog(
   params: ReviewWorkflowParams,
-  deps: ChatEventHandlerDeps,
-  event: ChatEvent
+  deps: ChatEventHandlerDeps
 ): Record<string, unknown> {
-  void sendSubmitResultToChat(params.config, deps, event, REVIEW_WORKFLOW_ACK_MESSAGE);
+  void sendSubmitResultToChat(params.config, deps, params.event, REVIEW_WORKFLOW_ACK_MESSAGE);
   scheduleReviewWorkflow(params, deps);
-  return respondDialogSubmitAck(event, "OK");
+  return respondDialogSubmitAck("OK");
 }
 
 function scheduleReviewWorkflow(params: ReviewWorkflowParams, deps: ChatEventHandlerDeps): void {
@@ -723,64 +728,36 @@ async function runReviewWorkflow(
 
 function validateReviewConfig(config: AppConfig, request: ReviewRequest): string | null {
   if (!config.reviewReportTemplateId) {
-    return "Настройте REVIEW_REPORT_TEMPLATE_ID в .env.local или .env.";
+    return "Настройте REVIEW_REPORT_TEMPLATE_ID в .env или .env.";
   }
   if (!config.internalReviewFormTemplateId) {
-    return "Настройте INTERNAL_REVIEW_FORM_TEMPLATE_ID в .env.local или .env.";
+    return "Настройте INTERNAL_REVIEW_FORM_TEMPLATE_ID в .env или .env.";
   }
   if (request.needsClientForm && !config.clientReviewFormTemplateId) {
-    return "Настройте CLIENT_REVIEW_FORM_TEMPLATE_ID в .env.local или .env.";
+    return "Настройте CLIENT_REVIEW_FORM_TEMPLATE_ID в .env или .env.";
   }
   return null;
 }
 
 function respondReviewMessage(
   isDialogSubmit: boolean,
-  isAddOnEvent: boolean,
-  event: ChatEvent,
   text: string,
   statusCode: "OK" | "INVALID_ARGUMENT"
 ): Record<string, unknown> {
   if (isDialogSubmit) {
-    if (event.commonEventObject) {
-      return addOnTextResponse(text);
-    }
     return dialogActionStatusResponse(text, statusCode);
-  }
-  if (isAddOnEvent) {
-    return addOnTextResponse(text);
   }
   return actionResponseText(text);
 }
 
 function respondReviewDialog(
   isDialogSubmit: boolean,
-  isAddOnEvent: boolean,
-  event: ChatEvent,
   card: Record<string, unknown>
 ): Record<string, unknown> {
-  if (isDialogSubmit && event.commonEventObject) {
-    return addOnDialogResponse(card);
-  }
   if (isDialogSubmit) {
     return dialogResponse(card);
   }
-  if (isAddOnEvent) {
-    return addOnDialogResponse(card);
-  }
   return actionResponseCard(card);
-}
-
-function updateDialogCard(card: Record<string, unknown>): Record<string, unknown> {
-  return {
-    action: {
-      navigations: [
-        {
-          updateCard: card
-        }
-      ]
-    }
-  };
 }
 
 function parseReviewRequest(
@@ -925,20 +902,44 @@ function isValidMeetingTime(value: string): boolean {
 }
 
 function resolveChatSpaceName(event: ChatEvent): string | undefined {
+  return event.space?.name;
+}
+
+function isEmployeeSuggestionsEvent(
+  config: AppConfig,
+  event: ChatEvent,
+  invokedFunction: string | undefined
+): boolean {
   return (
-    event.chat?.space?.name ??
-    event.chat?.appCommandPayload?.space?.name ??
-    event.chat?.buttonClickedPayload?.space?.name ??
-    event.chat?.widgetUpdatedPayload?.space?.name
+    invokedFunction === `${config.appBaseUrl}/google-chat/events` &&
+    event.common?.parameters?.autocomplete_widget_query !== undefined &&
+    event.common?.parameters?.actionName === undefined &&
+    event.dialogEventType !== "CANCEL_DIALOG"
   );
 }
 
-function isAddOnDialogContext(event: ChatEvent): boolean {
-  const buttonPayload = event.chat?.buttonClickedPayload;
-  if (buttonPayload?.isDialogEvent || buttonPayload?.dialogEventType) {
-    return true;
+function resolveActionName(event: ChatEvent): string | undefined {
+  return event.common?.parameters?.actionName ?? event.common?.invokedFunction;
+}
+
+function resolveAppCommandId(event: ChatEvent): number | undefined {
+  const appCommandId = event.appCommandMetadata?.appCommandId;
+
+  if (appCommandId !== undefined) {
+    return appCommandId;
   }
-  return Boolean(event.chat?.widgetUpdatedPayload);
+
+  const slashCommandId = event.message?.slashCommand?.commandId;
+  if (!slashCommandId) {
+    return undefined;
+  }
+
+  const parsed = Number(slashCommandId);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function isDialogContext(event: ChatEvent): boolean {
+  return Boolean(event.isDialogEvent || event.dialogEventType);
 }
 
 async function deliverWorkflowResultToChat(
@@ -978,7 +979,7 @@ async function deliverWorkflowAuthRequired(
   };
 }
 
-type AuthRequiredResponseKind = "addon_text" | "dialog_card" | "addon_dialog" | "employee_suggestions";
+type AuthRequiredResponseKind = "chat_message" | "dialog_card" | "employee_suggestions";
 
 async function respondReviewerAuthRequired(
   config: AppConfig,
@@ -1003,40 +1004,28 @@ async function respondReviewerAuthRequired(
   const message = formatAuthRequiredMessage(authUrl);
 
   if (kind === "dialog_card") {
-    return actionResponseCard(authRequiredCard(authUrl));
+    return dialogResponse(authRequiredCard(authUrl));
   }
 
   const spaceName = resolveChatSpaceName(event);
-  const inDialog = isAddOnDialogContext(event);
+  const inDialog = isDialogContext(event);
 
   if (spaceName) {
     await sendSubmitResultToChat(config, deps, event, message);
     if (inDialog) {
-      return addOnCloseDialogResponse();
+      return dialogActionStatusResponse("", "OK");
     }
     return {};
   }
 
   logChatEvent("auth.required.fallback", { chatUserId, reason: "missingSpaceName" });
-  return addOnTextResponse(message);
+  return textResponse(message);
 }
 
 function respondDialogSubmitAck(
-  event: ChatEvent,
   statusCode: "OK" | "INVALID_ARGUMENT"
 ): Record<string, unknown> {
-  if (event.commonEventObject) {
-    return addOnCloseDialogResponse();
-  }
   return dialogActionStatusResponse("", statusCode);
-}
-
-function addOnCloseDialogResponse(): Record<string, unknown> {
-  return {
-    action: {
-      navigations: [{ endNavigation: { action: "CLOSE_DIALOG" } }]
-    }
-  };
 }
 
 async function sendSubmitResultToChat(
@@ -1070,31 +1059,6 @@ function textResponse(text: string): Record<string, unknown> {
   return { text };
 }
 
-function addOnTextResponse(text: string): Record<string, unknown> {
-  return {
-    hostAppDataAction: {
-      chatDataAction: {
-        createMessageAction: {
-          message: {
-            text
-          }
-        }
-      }
-    }
-  };
-}
-
-function addOnDialogResponse(card: Record<string, unknown>): Record<string, unknown> {
-  return {
-    action: {
-      navigations: [
-        {
-          pushCard: card
-        }
-      ]
-    }
-  };
-}
 
 function dialogActionStatusResponse(
   text: string,
@@ -1153,16 +1117,14 @@ function employeeSuggestionsResponse(
   suggestions: Array<{ text: string; value: string; bottomText?: string }>
 ): Record<string, unknown> {
   return {
-    action: {
-      modifyOperations: [
-        {
-          updateWidget: {
-            selectionInputWidgetSuggestions: {
-              suggestions
-            }
-          }
+    actionResponse: {
+      type: "UPDATE_WIDGET",
+      updatedWidget: {
+        widget: "employeeFolder",
+        suggestions: {
+          items: suggestions
         }
-      ]
+      }
     }
   };
 }
@@ -1446,16 +1408,40 @@ function reviewFormCard(
 }
 
 function authRequiredCard(authUrl: string): Record<string, unknown> {
+  return authCard(
+    "Нужно подключить Google",
+    "Подключите Google-аккаунт ревьюера и повторите запуск.",
+    authUrl
+  );
+}
+
+function welcomeCard(authUrl: string): Record<string, unknown> {
+  return authCard(
+    "Performance Review Bot",
+    [
+      "Бот помогает подготовить performance review.",
+      "",
+      "Команды:",
+      "/info — информация о боте",
+      "/review — запуск подготовки performance review",
+      "",
+      "Перед запуском /review подключите Google-аккаунт ревьюера."
+    ].join("<br>"),
+    authUrl
+  );
+}
+
+function authCard(title: string, text: string, authUrl: string): Record<string, unknown> {
   return {
     header: {
-      title: "Нужно подключить Google"
+      title
     },
     sections: [
       {
         widgets: [
           {
             textParagraph: {
-              text: "Подключите Google-аккаунт ревьюера и повторите запуск."
+              text
             }
           },
           {

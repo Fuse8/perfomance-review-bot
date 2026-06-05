@@ -5,9 +5,6 @@ import { PrismaClient } from "@prisma/client";
 import type { AppConfig } from "./config.js";
 import type { OAuthState, PendingReviewRequest, ReviewerToken } from "./types.js";
 
-const TOKENS_COLLECTION = "reviewer_tokens";
-const OAUTH_STATES_COLLECTION = "oauth_states";
-const PENDING_REVIEWS_COLLECTION = "pending_reviews";
 let prismaClient: PrismaClient | null = null;
 
 type StorageData = {

@@ -2,6 +2,8 @@
 
 A Google Chat bot for managing a performance review workflow.
 
+It's standalone chat bot, not add-on.
+
 Basic flow: the `/review` command opens a form. After submission, the bot creates a Google Drive folder named `{First Name Last Name} // YYYY.MM` and returns a link to it.
 
 ## Tech Stack
@@ -119,6 +121,8 @@ For detailed instructions, see [docs/vercel-neon-deploy.md](docs/vercel-neon-dep
 - Prisma migrate (production): `pnpm prisma:migrate:deploy`
 
 ## Google Chat App Configuration
+
+For full setup instructions, see [docs/google-chat-bot-setup.md](docs/google-chat-bot-setup.md).
 
 In Google Chat API settings:
 

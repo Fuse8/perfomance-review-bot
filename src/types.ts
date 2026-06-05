@@ -28,45 +28,19 @@ export type PendingReviewRequest = ReviewRequest & {
 
 export type ChatEvent = {
   type?: string;
-  commonEventObject?: {
-    formInputs?: Record<string, ChatFormInput>;
-    parameters?: Record<string, string>;
+  dialogEventType?: string;
+  isDialogEvent?: boolean;
+  appCommandMetadata?: {
+    appCommandId?: number;
+    appCommandType?: string;
+  };
+  space?: {
+    name?: string;
   };
   user?: {
     name?: string;
     displayName?: string;
     email?: string;
-  };
-  chat?: {
-    space?: {
-      name?: string;
-    };
-    user?: {
-      name?: string;
-      displayName?: string;
-      email?: string;
-    };
-    appCommandPayload?: {
-      appCommandMetadata?: {
-        appCommandId?: number;
-        appCommandType?: string;
-      };
-      space?: {
-        name?: string;
-      };
-    };
-    buttonClickedPayload?: {
-      isDialogEvent?: boolean;
-      dialogEventType?: string;
-      space?: {
-        name?: string;
-      };
-    };
-    widgetUpdatedPayload?: {
-      space?: {
-        name?: string;
-      };
-    };
   };
   message?: {
     slashCommand?: {
@@ -77,6 +51,7 @@ export type ChatEvent = {
   common?: {
     invokedFunction?: string;
     formInputs?: Record<string, ChatFormInput>;
+    parameters?: Record<string, string>;
   };
 };
 
