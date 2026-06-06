@@ -227,7 +227,7 @@ function buildInfoMessage(): string {
     "",
     `Version: ${BOT_VERSION}`,
     "",
-    "Available commands:",
+    "Команды:",
     "- /review — открывает форму и запускает workflow performance review"
   ].join("\n");
 }

@@ -118,7 +118,7 @@ test("/info returns bot version and review command help", async () => {
   const text = getResponseText(response);
   assert.match(text, /^\/info/m);
   assert.match(text, /Version: 0\.1\.1/);
-  assert.match(text, /Available commands:/);
+  assert.match(text, /Команды:/);
   assert.match(text, /\/review/);
   assert.match(text, /opens a form|открывает форму/i);
 });
