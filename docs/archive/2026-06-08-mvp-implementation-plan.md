@@ -8,7 +8,7 @@
 
 ### Что уже работает
 
-- Локальный запуск через `pnpm dev:local`.
+- Локальный запуск через `pnpm dev`.
 - Публичный URL через `ngrok`.
 - Google Chat получает события.
 - `/check` отвечает `hello world`.
@@ -171,7 +171,7 @@
 - Описать env vars.
 - Описать OAuth scopes.
 - Описать запуск:
-  - `pnpm dev:local`;
+  - `pnpm dev`;
   - `pnpm tunnel`;
   - Google Chat webhook URL.
 - Описать типичные ошибки:

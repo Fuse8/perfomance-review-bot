@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createTokenStorage } from "./storage.js";

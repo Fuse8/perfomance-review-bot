@@ -1326,7 +1326,7 @@ function reviewFormCard(
           {
             textInput: {
               name: "meetingTime",
-              label: "Время ревью (HH:mm, Екатеринбург)"
+              label: "Время ревью (HH:mm, Челябинск)"
             }
           },
           {
