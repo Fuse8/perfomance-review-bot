@@ -8,6 +8,7 @@ Core project information, technology stack, environment configuration, and avail
 
 - Prefer small scoped changes over broad refactors.
 - Do not create a new git branch during development; work in the current branch.
+- When starting a task, create a plan before implementation.
 - After finishing a task, wait for user review. If review requests changes, implement them. If there are no requested changes, move the task document to `docs/archive/` and mark it as done.
 - After all requested work is done and verified, create a git commit with the completed changes.
 
