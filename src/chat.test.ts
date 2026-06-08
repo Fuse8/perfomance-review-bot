@@ -799,6 +799,35 @@ test('/review employee selection transliterates directory English name in full n
 	});
 });
 
+test('/review employee selection keeps original directory name in selected chip', async () => {
+	const handleChatEvent = createHandler();
+
+	const response = await handleChatEvent(
+		config,
+		storage,
+		employeeSelectEvent('test.ivanov@fuse8.online|Test Ivanov'),
+	);
+	const card = getUpdatedCard(response);
+	const widgets = card.sections?.[0]?.widgets ?? [];
+
+	const selectedEmployeeWidget = widgets[0] as {
+		selectionInput: { items?: unknown[] };
+	};
+	assert.deepEqual(selectedEmployeeWidget.selectionInput.items?.[0], {
+		text: 'Test Ivanov (test.ivanov@fuse8.online)',
+		value: 'test.ivanov@fuse8.online|Test Ivanov',
+		selected: true,
+	});
+	assert.deepEqual(widgets[1], {
+		textInput: {
+			name: 'manualFullName',
+			label: 'Имя и фамилия (название папки)',
+			type: 'SINGLE_LINE',
+			value: 'Тест Иванов',
+		},
+	});
+});
+
 test('/review employee selection transliterates common English employee names', async () => {
 	const handleChatEvent = createHandler();
 
@@ -918,6 +947,15 @@ test('/review employee check opens review form when Drive folder exists', async 
 	assert.deepEqual(widgets[2], {
 		textParagraph: {
 			text: 'Прошлое ревью найдено: 2026-05',
+		},
+	});
+	assert.deepEqual(widgets[4], {
+		textInput: {
+			name: 'meetingTime',
+			label: 'Время ревью (HH:mm, Челябинск)',
+			validation: {
+				characterLimit: 5,
+			},
 		},
 	});
 });
@@ -1226,6 +1264,30 @@ test('/review submit creates a test folder and returns its link', async () => {
 	]);
 });
 
+test('/review submit accepts valid meeting time', async () => {
+	const meetingTimes: string[] = [];
+	const handleChatEvent = createHandler({
+		async createReviewFolder(_config, _refreshToken, request) {
+			meetingTimes.push(request.meetingTime);
+			return {
+				id: 'folder-id',
+				name: '2026.06',
+				webViewLink: 'https://drive.google.com/folder',
+			};
+		},
+		async sendChatMessage() {},
+	});
+
+	await handleChatEvent(
+		config,
+		storage,
+		reviewSubmitEvent({ meetingTime: '09:05' }),
+	);
+	await flushBackgroundTasks();
+
+	assert.deepEqual(meetingTimes, ['09:05']);
+});
+
 test('/review submit skips result delivery when space name is missing', async () => {
 	const sentMessages: Array<{ spaceName: string; text: string }> = [];
 	const handleChatEvent = createHandler({
@@ -1364,6 +1426,46 @@ test('/review submit validates meeting time', async () => {
 	const text = getResponseText(response);
 
 	assert.match(text, /Укажите время ревью/);
+});
+
+test('/review submit rejects malformed meeting time values', async () => {
+	let createFolderCalled = false;
+	const handleChatEvent = createHandler({
+		async createReviewFolder() {
+			createFolderCalled = true;
+			throw new Error('should not create folder');
+		},
+	});
+
+	const response = await handleChatEvent(
+		config,
+		storage,
+		reviewSubmitEvent({ meetingTime: 'abcde' }),
+	);
+	const text = getResponseText(response);
+
+	assert.match(text, /Время ревью/);
+	assert.match(text, /HH:mm/);
+	assert.match(text, /00:00-23:59/);
+	assert.match(text, /14:30/);
+	assert.equal(createFolderCalled, false);
+});
+
+test('/review submit rejects impossible meeting time values', async () => {
+	const handleChatEvent = createHandler({
+		async createReviewFolder() {
+			throw new Error('should not create folder');
+		},
+	});
+
+	const response = await handleChatEvent(
+		config,
+		storage,
+		reviewSubmitEvent({ meetingTime: '24:00' }),
+	);
+	const text = getResponseText(response);
+
+	assert.match(text, /00:00-23:59/);
 });
 
 test('/review submit includes only internal form link when client form is not needed', async () => {

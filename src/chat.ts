@@ -524,6 +524,7 @@ function handleEmployeeSelect(
 	return dialogResponse(
 		employeeLookupCard(config, {
 			fullName: transliterateEmployeeName(selectedEmployee.name),
+			displayName: selectedEmployee.name,
 			email: selectedEmployee.id,
 			selectedEmployeeValue: encodeEmployeeSelection(
 				selectedEmployee.id,
@@ -875,7 +876,11 @@ function parseReviewRequest(
 	}
 
 	if (!isValidMeetingTime(meetingTime)) {
-		return { ok: false, error: 'Укажите время ревью в формате HH:mm.' };
+		return {
+			ok: false,
+			error:
+				'Время ревью должно быть в формате HH:mm, диапазон 00:00-23:59. Например: 14:30.',
+		};
 	}
 
 	return {
@@ -1385,6 +1390,7 @@ function employeeLookupCard(
 	config: AppConfig,
 	selectedEmployee?: {
 		fullName: string;
+		displayName?: string;
 		email: string;
 		selectedEmployeeValue: string;
 		folderError?: string;
@@ -1408,7 +1414,7 @@ function employeeLookupCard(
 								? {
 										items: [
 											{
-												text: `${selectedEmployee.fullName} (${selectedEmployee.email})`,
+												text: `${selectedEmployee.displayName ?? selectedEmployee.fullName} (${selectedEmployee.email})`,
 												value: selectedEmployee.selectedEmployeeValue,
 												selected: true,
 											},
@@ -1542,6 +1548,9 @@ function reviewFormCard(
 						textInput: {
 							name: 'meetingTime',
 							label: 'Время ревью (HH:mm, Челябинск)',
+							validation: {
+								characterLimit: 5,
+							},
 						},
 					},
 					{
