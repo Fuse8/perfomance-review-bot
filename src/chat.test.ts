@@ -45,10 +45,6 @@ const storage: TokenStorage = {
   async saveOAuthState() {},
   async consumeOAuthState() {
     return null;
-  },
-  async savePendingReview() {},
-  async consumePendingReview() {
-    return null;
   }
 };
 
@@ -472,7 +468,7 @@ test("/review submit sends auth link to chat when workflow fails with invalid_gr
   assert.match(sentMessages[1] ?? "", /подключить Google-аккаунт ревьюера/i);
 });
 
-test("/review submit closes dialog and sends auth message when previous review lookup fails with invalid_grant", async () => {
+test("/review employee check returns auth message when previous review lookup fails with invalid_grant", async () => {
   let deleted = false;
   const trackingStorage: TokenStorage = {
     ...storage,
@@ -480,29 +476,26 @@ test("/review submit closes dialog and sends auth message when previous review l
       deleted = true;
     }
   };
-  const sentMessages: string[] = [];
   const handleChatEvent = createHandler({
+    async findEmployeeFolder() {
+      return { id: "employee-folder-id", name: "Ivan Petrov" };
+    },
     async findPreviousReviewReport() {
       throw new Error("invalid_grant");
     },
     async buildAuthUrl() {
       return "https://example.test/oauth";
-    },
-    async sendChatMessage(_config, _spaceName, text) {
-      sentMessages.push(text);
     }
   });
 
   const response = await handleChatEvent(
     config,
     trackingStorage,
-    reviewSubmitEvent()
+    employeeCheckEvent({ manualFullName: "Ivan Petrov" })
   );
 
   assert.equal(deleted, true);
-  const card = getFirstCard(response);
-  assert.equal(card.header?.title, "Нужно подключить Google");
-  assert.equal(sentMessages.length, 0);
+  assert.match(getResponseText(response), /https:\/\/example\.test\/oauth/);
 });
 
 test("/review employee suggestions return matching directory employees", async () => {
@@ -656,7 +649,7 @@ test("/review employee selection updates card with full name and email inputs", 
       name: "manualFullName",
       label: "Имя и фамилия (название папки)",
       type: "SINGLE_LINE",
-      value: "Ivan Petrov"
+      value: "Иван Петров"
     }
   });
   assert.deepEqual(widgets[2], {
@@ -665,6 +658,27 @@ test("/review employee selection updates card with full name and email inputs", 
       label: "Email",
       type: "SINGLE_LINE",
       value: "ivan.petrov@fuse8.online"
+    }
+  });
+  assert.deepEqual(widgets[3], {
+    buttonList: {
+      buttons: [
+        {
+          text: "Проверить папку",
+          onClick: {
+            action: {
+              function: "https://example.test/google-chat/events",
+              requiredWidgets: ["manualFullName", "employeeEmail"],
+              parameters: [
+                {
+                  key: "actionName",
+                  value: "checkEmployeeFolder"
+                }
+              ]
+            }
+          }
+        }
+      ]
     }
   });
 });
@@ -689,7 +703,7 @@ test("/review employee selection uses the latest selected employee value", async
       name: "manualFullName",
       label: "Имя и фамилия (название папки)",
       type: "SINGLE_LINE",
-      value: "Anton Permyakov"
+      value: "Антон Пермяков"
     }
   });
   assert.deepEqual(widgets[2], {
@@ -722,7 +736,7 @@ test("/review employee selection ignores stale persisted name and email fields",
       name: "manualFullName",
       label: "Имя и фамилия (название папки)",
       type: "SINGLE_LINE",
-      value: "Andrey Stepanov"
+      value: "Андрей Степанов"
     }
   });
   assert.deepEqual(widgets[2], {
@@ -735,7 +749,7 @@ test("/review employee selection ignores stale persisted name and email fields",
   });
 });
 
-test("/review employee selection keeps directory English name in full name input", async () => {
+test("/review employee selection transliterates directory English name in full name input", async () => {
   const handleChatEvent = createHandler();
 
   const response = await handleChatEvent(
@@ -751,7 +765,39 @@ test("/review employee selection keeps directory English name in full name input
       name: "manualFullName",
       label: "Имя и фамилия (название папки)",
       type: "SINGLE_LINE",
-      value: "Andrey Stepanov"
+      value: "Андрей Степанов"
+    }
+  });
+});
+
+test("/review employee selection transliterates common English employee names", async () => {
+  const handleChatEvent = createHandler();
+
+  const testIvanovResponse = await handleChatEvent(
+    config,
+    storage,
+    employeeSelectEvent("test.ivanov@fuse8.online|Test Ivanov")
+  );
+  const dmitryBerdnikovResponse = await handleChatEvent(
+    config,
+    storage,
+    employeeSelectEvent("dmitry.berdnikov@fuse8.online|Dmitry Berdnikov")
+  );
+
+  assert.deepEqual(getUpdatedCard(testIvanovResponse).sections?.[0]?.widgets?.[1], {
+    textInput: {
+      name: "manualFullName",
+      label: "Имя и фамилия (название папки)",
+      type: "SINGLE_LINE",
+      value: "Тест Иванов"
+    }
+  });
+  assert.deepEqual(getUpdatedCard(dmitryBerdnikovResponse).sections?.[0]?.widgets?.[1], {
+    textInput: {
+      name: "manualFullName",
+      label: "Имя и фамилия (название папки)",
+      type: "SINGLE_LINE",
+      value: "Дмитрий Бердников"
     }
   });
 });
@@ -762,6 +808,16 @@ test("/review employee check opens review form when Drive folder exists", async 
       assert.equal(refreshToken, "refresh-token");
       assert.equal(fullName, "Ivan Petrov");
       return { id: "employee-folder-id", name: "Ivan Petrov" };
+    },
+    async findPreviousReviewReport(_config, refreshToken, fullName, reviewMonth) {
+      assert.equal(refreshToken, "refresh-token");
+      assert.equal(fullName, "Ivan Petrov");
+      assert.match(reviewMonth, /^\d{4}\.\d{2}$/);
+      return {
+        id: "previous-report-id",
+        name: "Ivan Petrov // Отчёт Performance Review // 2026-05",
+        webViewLink: "https://docs.google.com/document/previous-report-id"
+      };
     }
   });
 
@@ -775,6 +831,31 @@ test("/review employee check opens review form when Drive folder exists", async 
   const widgets = card.sections?.[0]?.widgets ?? [];
 
   assert.equal(card.header?.title, "Запуск Performance Review");
+  assert.deepEqual(widgets.at(-1), {
+    buttonList: {
+      buttons: [
+        {
+          text: "Создать папку",
+          onClick: {
+            action: {
+              function: "https://example.test/google-chat/events",
+              requiredWidgets: ["fullName", "employeeEmail", "reviewDate", "meetingTime"],
+              parameters: [
+                {
+                  key: "actionName",
+                  value: "submitReview"
+                },
+                {
+                  key: "previousReviewUrl",
+                  value: "https://docs.google.com/document/previous-report-id"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  });
   assert.deepEqual(widgets[0], {
     textInput: {
       name: "fullName",
@@ -789,11 +870,19 @@ test("/review employee check opens review form when Drive folder exists", async 
       value: "iaroslav.zaiarnyi@byteminds.co.uk"
     }
   });
+  assert.deepEqual(widgets[2], {
+    textParagraph: {
+      text: "Прошлое ревью найдено: 2026-05"
+    }
+  });
 });
 
-test("/review employee check returns clear text when selected directory employee has no Drive folder", async () => {
+test("/review employee check shows missing previous review status when Drive folder exists", async () => {
   const handleChatEvent = createHandler({
     async findEmployeeFolder() {
+      return { id: "employee-folder-id", name: "Ivan Petrov" };
+    },
+    async findPreviousReviewReport() {
       return null;
     }
   });
@@ -804,7 +893,105 @@ test("/review employee check returns clear text when selected directory employee
     employeeCheckEvent({ manualFullName: "Ivan Petrov" })
   );
 
-  assert.match(getResponseText(response), /Папка сотрудника не найдена: Ivan Petrov/);
+  const card = getUpdatedCard(response);
+  const widgets = card.sections?.[0]?.widgets ?? [];
+
+  assert.equal(card.header?.title, "Запуск Performance Review");
+  assert.deepEqual(widgets[2], {
+    textParagraph: {
+      text: "Прошлое ревью не найдено"
+    }
+  });
+  assert.deepEqual(widgets.at(-1), {
+    buttonList: {
+      buttons: [
+        {
+          text: "Создать папку",
+          onClick: {
+            action: {
+              function: "https://example.test/google-chat/events",
+              requiredWidgets: ["fullName", "employeeEmail", "reviewDate", "meetingTime"],
+              parameters: [
+                {
+                  key: "actionName",
+                  value: "submitReview"
+                },
+                {
+                  key: "previousReviewUrl",
+                  value: ""
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  });
+});
+
+test("/review employee check keeps dialog open when selected directory employee has no Drive folder", async () => {
+  const handleChatEvent = createHandler({
+    async findEmployeeFolder() {
+      return null;
+    }
+  });
+
+  const response = await handleChatEvent(
+    config,
+    storage,
+    employeeCheckEvent({
+      manualFullName: "Ivan Petrov",
+      employeeEmail: "ivan.petrov@fuse8.online",
+      selectedEmployee: "ivan.petrov@fuse8.online|Ivan Petrov"
+    })
+  );
+
+  const card = getUpdatedCard(response);
+  const widgets = card.sections?.[0]?.widgets ?? [];
+
+  assert.equal(card.header?.title, "Выбор сотрудника");
+  assert.deepEqual(widgets[1], {
+    textInput: {
+      name: "manualFullName",
+      label: "Имя и фамилия (название папки)",
+      type: "SINGLE_LINE",
+      value: "Ivan Petrov"
+    }
+  });
+  assert.deepEqual(widgets[2], {
+    textInput: {
+      name: "employeeEmail",
+      label: "Email",
+      type: "SINGLE_LINE",
+      value: "ivan.petrov@fuse8.online"
+    }
+  });
+  assert.deepEqual(widgets[3], {
+    textParagraph: {
+      text: "Папка сотрудника не найдена. Создайте папку вручную и нажмите «Проверить папку» еще раз."
+    }
+  });
+  assert.deepEqual(widgets[4], {
+    buttonList: {
+      buttons: [
+        {
+          text: "Проверить папку",
+          onClick: {
+            action: {
+              function: "https://example.test/google-chat/events",
+              requiredWidgets: ["manualFullName", "employeeEmail"],
+              parameters: [
+                {
+                  key: "actionName",
+                  value: "checkEmployeeFolder"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  });
 });
 
 test("/review employee check validates manual full name against Drive folder", async () => {
@@ -830,6 +1017,9 @@ test("/review employee check validates manual full name against Drive folder", a
 test("/review submit creates a test folder and returns its link", async () => {
   const sentMessages: Array<{ spaceName: string; text: string }> = [];
   const handleChatEvent = createHandler({
+    async findPreviousReviewReport() {
+      throw new Error("should not look up previous review on submit");
+    },
     async createReviewFolder(_config, refreshToken, request) {
       assert.equal(refreshToken, "refresh-token");
       assert.deepEqual(request, {
@@ -1182,79 +1372,12 @@ test("/review submit asks to configure report template when it is missing", asyn
   assert.match(text, /Настройте REVIEW_REPORT_TEMPLATE_ID/);
 });
 
-test("/review submit returns clear text when employee folder is missing", async () => {
+test("/review submit creates review without previous review when previousReviewUrl is empty", async () => {
   const sentMessages: string[] = [];
   const handleChatEvent = createHandler({
     async findPreviousReviewReport() {
-      throw new Error("Папка сотрудника не найдена: Ivan Petrov");
+      throw new Error("should not look up previous review on submit");
     },
-    async createReviewFolder() {
-      throw new Error("should not create folder");
-    },
-    async sendChatMessage(_config, _spaceName, text) {
-      sentMessages.push(text);
-    }
-  });
-
-  const response = await handleChatEvent(config, storage, reviewSubmitEvent());
-  const statusText = getResponseText(response);
-
-  assert.match(statusText, /Не удалось найти предыдущее ревью/);
-  assert.match(statusText, /Папка сотрудника не найдена: Ivan Petrov/);
-  assert.equal(sentMessages.length, 0);
-});
-
-test("/review submit asks to confirm when previous review is missing", async () => {
-  const savedPending: Array<Record<string, unknown>> = [];
-  const pendingStorage: TokenStorage = {
-    ...storage,
-    async savePendingReview(request) {
-      savedPending.push(request);
-    }
-  };
-  const handleChatEvent = createHandler({
-    async findPreviousReviewReport() {
-      return null;
-    },
-    async createReviewFolder() {
-      throw new Error("should not create folder");
-    }
-  });
-
-  const response = await handleChatEvent(
-    config,
-    pendingStorage,
-    reviewSubmitEvent()
-  );
-
-  assert.equal(savedPending.length, 1);
-  assert.equal(savedPending[0]?.fullName, "Ivan Petrov");
-  assert.equal(savedPending[0]?.reviewMonth, "2026.06");
-  const card = getFirstCard(response);
-  assert.deepEqual(card.header, {
-    title: "Предыдущее ревью не найдено"
-  });
-});
-
-test("/review submit continues without previous review after confirmation", async () => {
-  const sentMessages: string[] = [];
-  const pendingStorage: TokenStorage = {
-    ...storage,
-    async savePendingReview() {},
-    async consumePendingReview() {
-      return {
-        chatUserId: "users/123",
-        reviewMonth: "2026.06",
-        createdAt: "2026-05-27T00:00:00.000Z",
-        fullName: "Ivan Petrov",
-        employeeEmail: "iaroslav.zaiarnyi@byteminds.co.uk",
-        reviewDate: "2026-06-15",
-        meetingTime: "14:30",
-        needsClientForm: true
-      };
-    }
-  };
-  const handleChatEvent = createHandler({
     async createReviewFolder(_config, _refreshToken, request) {
       assert.equal(request.previousReviewUrl, "");
       return {
@@ -1275,8 +1398,8 @@ test("/review submit continues without previous review after confirmation", asyn
 
   const response = await handleChatEvent(
     config,
-    pendingStorage,
-    confirmWithoutPreviousEvent()
+    storage,
+    reviewSubmitEvent({ previousReviewUrl: "" })
   );
   assert.deepEqual(response.actionResponse, {
     type: "DIALOG",
@@ -1342,32 +1465,6 @@ test("/review submit returns user-facing text when Drive folder creation fails",
   assert.match(sentMessages[1] ?? "", /Не удалось создать папку ревью/);
   assert.match(sentMessages[1] ?? "", /Drive API has not been used in project/);
 });
-
-function confirmWithoutPreviousEvent(
-  overrides: { chatSpaceName?: string | null } = {}
-): ChatEvent {
-  const event: ChatEvent = {
-    user: {
-      name: "users/123"
-    },
-    isDialogEvent: true,
-    dialogEventType: "SUBMIT_DIALOG",
-    common: {
-      invokedFunction: "https://example.test/google-chat/events",
-      parameters: {
-        actionName: "confirmReviewWithoutPrevious"
-      }
-    },
-  };
-
-  if (overrides.chatSpaceName !== null) {
-    event.space = {
-      name: overrides.chatSpaceName ?? "spaces/AAA"
-    };
-  }
-
-  return event;
-}
 
 function reviewCommandEvent(spaceName = "spaces/AAA"): ChatEvent {
   return {
@@ -1493,6 +1590,7 @@ function reviewSubmitEvent(
     meetingTime?: string;
     needsClientForm?: boolean;
     chatSpaceName?: string | null;
+    previousReviewUrl?: string;
   } = {}
 ): ChatEvent {
   const event: ChatEvent = {
@@ -1504,7 +1602,9 @@ function reviewSubmitEvent(
     common: {
       invokedFunction: "https://example.test/google-chat/events",
       parameters: {
-        actionName: "submitReview"
+        actionName: "submitReview",
+        previousReviewUrl:
+          overrides.previousReviewUrl ?? "https://docs.google.com/document/previous-report-id"
       },
       formInputs: {
         fullName: {

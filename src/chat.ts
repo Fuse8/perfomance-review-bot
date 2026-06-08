@@ -23,7 +23,6 @@ import type { ChatEvent, ChatFormInput, ReviewRequest } from "./types.js";
 const SUBMIT_FUNCTION = "submitReview";
 const SELECT_EMPLOYEE_FUNCTION = "selectEmployee";
 const CHECK_EMPLOYEE_FOLDER_FUNCTION = "checkEmployeeFolder";
-const CONFIRM_WITHOUT_PREVIOUS_FUNCTION = "confirmReviewWithoutPrevious";
 const ADDED_TO_SPACE_EVENT = "ADDED_TO_SPACE";
 const REVIEW_COMMAND_ID = 1;
 const INFO_COMMAND_ID = 2;
@@ -183,11 +182,6 @@ export function createChatEventHandler(deps: Partial<ChatEventHandlerDeps> = {})
     if (actionName === SELECT_EMPLOYEE_FUNCTION) {
       logChatEvent("route.selectEmployee");
       return handleEmployeeSelect(config, event);
-    }
-
-    if (actionName === CONFIRM_WITHOUT_PREVIOUS_FUNCTION) {
-      logChatEvent("route.confirmWithoutPrevious");
-      return handleConfirmReviewWithoutPrevious(config, storage, chatUserId, event, resolvedDeps);
     }
 
     if (appCommandId === REVIEW_COMMAND_ID) {
@@ -355,17 +349,64 @@ async function handleEmployeeFolderCheck(
     throw error;
   }
   if (!folder) {
-    return respondReviewMessage(
-      isDialogSubmit,
-      `Папка сотрудника не найдена: ${manualFullName}`,
-      "INVALID_ARGUMENT"
+    const selectedEmployeeValue = getLastStringInput(inputs.employeeFolder);
+
+    return dialogResponse(
+      employeeLookupCard(config, {
+        fullName: manualFullName,
+        email: employeeEmail,
+        selectedEmployeeValue:
+          selectedEmployeeValue ||
+          encodeEmployeeSelection(employeeEmail || manualFullName, manualFullName),
+        folderError:
+          "Папка сотрудника не найдена. Создайте папку вручную и нажмите «Проверить папку» еще раз."
+      })
     );
+  }
+
+  const currentMonth = formatReviewMonth(new Date().toISOString());
+  let previousReviewStatus = "Прошлое ревью не найдено";
+  let previousReviewUrl = "";
+  try {
+    const previousReview = await deps.findPreviousReviewReport(
+      config,
+      token.refreshToken,
+      manualFullName,
+      currentMonth
+    );
+
+    if (previousReview) {
+      previousReviewUrl = previousReview.webViewLink;
+      previousReviewStatus = `Прошлое ревью найдено: ${formatPreviousReviewLabel(previousReview.name)}`;
+      logChatEvent("employeeCheck.previousReview.found", {
+        reportName: previousReview.name,
+        webViewLink: previousReview.webViewLink
+      });
+    } else {
+      logChatEvent("employeeCheck.previousReview.missing", {
+        fullName: manualFullName,
+        reviewMonth: currentMonth
+      });
+    }
+  } catch (error) {
+    if (isOAuthAuthError(error)) {
+      logChatEvent("employeeCheck.previousReview.authFailed", {
+        chatUserId,
+        message: error instanceof Error ? error.message : String(error)
+      });
+      return respondReviewerAuthRequired(config, storage, chatUserId, deps, event, "chat_message", {
+        clearStaleToken: true
+      });
+    }
+    throw error;
   }
 
   return dialogResponse(
     reviewFormCard(config, {
       fullName: manualFullName,
-      employeeEmail
+      employeeEmail,
+      previousReviewStatus,
+      previousReviewUrl
     })
   );
 }
@@ -383,7 +424,7 @@ function handleEmployeeSelect(
 
   return dialogResponse(
     employeeLookupCard(config, {
-      fullName: selectedEmployee.name,
+      fullName: transliterateEmployeeName(selectedEmployee.name),
       email: selectedEmployee.id,
       selectedEmployeeValue: encodeEmployeeSelection(selectedEmployee.id, selectedEmployee.name)
     })
@@ -401,7 +442,7 @@ async function handleReviewSubmit(
   const inputs = event.common?.formInputs ?? {};
   logChatEvent("submit.inputs", summarizeFormInputs(inputs));
 
-  const parsed = parseReviewRequest(config, inputs);
+  const parsed = parseReviewRequest(config, inputs, event.common?.parameters ?? {});
 
   if (!parsed.ok) {
     logChatEvent("submit.validationFailed", { error: parsed.error });
@@ -432,57 +473,6 @@ async function handleReviewSubmit(
 
   const month = formatReviewMonth(parsed.value.reviewDate);
 
-  let previousReviewUrl = "";
-  try {
-    const previousReview = await deps.findPreviousReviewReport(
-      config,
-      token.refreshToken,
-      parsed.value.fullName,
-      month
-    );
-
-    if (previousReview) {
-      previousReviewUrl = previousReview.webViewLink;
-      logChatEvent("submit.previousReview.found", {
-        reportName: previousReview.name,
-        webViewLink: previousReview.webViewLink
-      });
-    } else {
-      logChatEvent("submit.previousReview.missing", { fullName: parsed.value.fullName, reviewMonth: month });
-      await storage.savePendingReview({
-        chatUserId,
-        reviewMonth: month,
-        createdAt: new Date().toISOString(),
-        ...parsed.value
-      });
-      return respondReviewDialog(isDialogSubmit, confirmWithoutPreviousReviewCard(config));
-    }
-  } catch (error) {
-    if (isOAuthAuthError(error)) {
-      logChatEvent("submit.previousReview.authFailed", {
-        chatUserId,
-        message: error instanceof Error ? error.message : String(error)
-      });
-      return respondReviewerAuthRequired(
-        config,
-        storage,
-        chatUserId,
-        deps,
-        event,
-        "dialog_card",
-        { clearStaleToken: true }
-      );
-    }
-
-    const message = error instanceof Error ? error.message : "Unknown error";
-    logChatEvent("submit.previousReview.failed", { message });
-    const errorText = [
-      "Не удалось найти предыдущее ревью.",
-      `Ошибка Google Drive: ${message}`
-    ].join("\n");
-    return respondReviewMessage(isDialogSubmit, errorText, "INVALID_ARGUMENT");
-  }
-
   return startReviewWorkflowFromDialog(
     {
       config,
@@ -493,56 +483,7 @@ async function handleReviewSubmit(
       reviewerEmail: token.googleUserEmail,
       request: parsed.value,
       reviewMonth: month,
-      previousReviewUrl
-    },
-    deps
-  );
-}
-
-async function handleConfirmReviewWithoutPrevious(
-  config: AppConfig,
-  storage: TokenStorage,
-  chatUserId: string,
-  event: ChatEvent,
-  deps: ChatEventHandlerDeps
-): Promise<Record<string, unknown>> {
-  const isDialogSubmit = event.dialogEventType === "SUBMIT_DIALOG";
-  const pending = await storage.consumePendingReview(chatUserId);
-
-  if (!pending) {
-    const errorText = "Нет сохранённого запроса. Повторите /review и отправьте форму заново.";
-    return respondReviewMessage(isDialogSubmit, errorText, "INVALID_ARGUMENT");
-  }
-
-  const configError = validateReviewConfig(config, pending);
-  if (configError) {
-    return respondReviewMessage(isDialogSubmit, configError, "INVALID_ARGUMENT");
-  }
-
-  const token = await storage.get(chatUserId);
-  if (!token) {
-    logChatEvent("submit.authRequired", { chatUserId });
-    return respondReviewerAuthRequired(
-      config,
-      storage,
-      chatUserId,
-      deps,
-      event,
-      "dialog_card"
-    );
-  }
-
-  return startReviewWorkflowFromDialog(
-    {
-      config,
-      storage,
-      chatUserId,
-      event,
-      refreshToken: token.refreshToken,
-      reviewerEmail: token.googleUserEmail,
-      request: pending,
-      reviewMonth: pending.reviewMonth,
-      previousReviewUrl: ""
+      previousReviewUrl: parsed.value.previousReviewUrl
     },
     deps
   );
@@ -750,19 +691,10 @@ function respondReviewMessage(
   return actionResponseText(text);
 }
 
-function respondReviewDialog(
-  isDialogSubmit: boolean,
-  card: Record<string, unknown>
-): Record<string, unknown> {
-  if (isDialogSubmit) {
-    return dialogResponse(card);
-  }
-  return actionResponseCard(card);
-}
-
 function parseReviewRequest(
   config: AppConfig,
-  inputs: Record<string, ChatFormInput>
+  inputs: Record<string, ChatFormInput>,
+  parameters: Record<string, string> = {}
 ):
   | { ok: true; value: ReviewRequest }
   | { ok: false; error: string } {
@@ -771,6 +703,7 @@ function parseReviewRequest(
   const reviewDate = getDateInput(inputs.reviewDate);
   const meetingTime = getStringInput(inputs.meetingTime).trim();
   const needsClientForm = getStringInput(inputs.needsClientForm) === "yes";
+  const previousReviewUrl = parameters.previousReviewUrl ?? "";
 
   if (!fullName) {
     return { ok: false, error: "Укажите имя и фамилию." };
@@ -813,7 +746,8 @@ function parseReviewRequest(
       employeeEmail,
       reviewDate,
       meetingTime,
-      needsClientForm
+      needsClientForm,
+      previousReviewUrl
     }
   };
 }
@@ -862,6 +796,10 @@ function summarizeFormInputs(inputs: Record<string, ChatFormInput>): Record<stri
 
 function formatReviewMonth(date: string): string {
   return date.slice(0, 7).replace("-", ".");
+}
+
+function formatPreviousReviewLabel(reportName: string): string {
+  return reportName.match(/\d{4}-\d{2}|\d{4}\.\d{2}/)?.[0] ?? reportName;
 }
 
 function formatReviewSuccessMessage(
@@ -1164,6 +1102,42 @@ function containsCyrillic(text: string): boolean {
   return /[\u0400-\u04FF]/.test(text);
 }
 
+function transliterateEmployeeName(name: string): string {
+  if (containsCyrillic(name)) {
+    return name;
+  }
+
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(transliterateLatinWord)
+    .join(" ");
+}
+
+function transliterateLatinWord(word: string): string {
+  let rest = word.toLowerCase();
+  let result = "";
+
+  while (rest.length > 0) {
+    const replacement = TRANSLIT_REPLACEMENTS.find(([latin]) => rest.startsWith(latin));
+    if (!replacement) {
+      result += rest[0];
+      rest = rest.slice(1);
+      continue;
+    }
+
+    const [latin, cyrillic] = replacement;
+    result += cyrillic;
+    rest = rest.slice(latin.length);
+  }
+
+  return capitalizeWord(result);
+}
+
+function capitalizeWord(word: string): string {
+  return word ? `${word[0].toLocaleUpperCase("ru-RU")}${word.slice(1)}` : word;
+}
+
 function buildReverseTranslReplacements(
   replacements: Array<[string, string]>
 ): Array<[string, string]> {
@@ -1199,51 +1173,13 @@ function reverseTransliterateWord(word: string): string {
   return result;
 }
 
-function confirmWithoutPreviousReviewCard(config: AppConfig): Record<string, unknown> {
-  return {
-    header: {
-      title: "Предыдущее ревью не найдено"
-    },
-    sections: [
-      {
-        widgets: [
-          {
-            textParagraph: {
-              text: "Предыдущее ревью не найдено. Продолжить без него?"
-            }
-          },
-          {
-            buttonList: {
-              buttons: [
-                {
-                  text: "Продолжить без предыдущего ревью",
-                  onClick: {
-                    action: {
-                      function: `${config.appBaseUrl}/google-chat/events`,
-                      parameters: [
-                        {
-                          key: "actionName",
-                          value: CONFIRM_WITHOUT_PREVIOUS_FUNCTION
-                        }
-                      ]
-                    }
-                  }
-                }
-              ]
-            }
-          }
-        ]
-      }
-    ]
-  };
-}
-
 function employeeLookupCard(
   config: AppConfig,
   selectedEmployee?: {
     fullName: string;
     email: string;
     selectedEmployeeValue: string;
+    folderError?: string;
   }
 ): Record<string, unknown> {
   return {
@@ -1303,6 +1239,15 @@ function employeeLookupCard(
                   value: selectedEmployee.email
                 }
               },
+              ...(selectedEmployee.folderError
+                ? [
+                  {
+                    textParagraph: {
+                      text: selectedEmployee.folderError
+                    }
+                  }
+                ]
+                : []),
               {
                 buttonList: {
                   buttons: [
@@ -1311,6 +1256,7 @@ function employeeLookupCard(
                       onClick: {
                         action: {
                           function: `${config.appBaseUrl}/google-chat/events`,
+                          requiredWidgets: ["manualFullName", "employeeEmail"],
                           parameters: [
                             {
                               key: "actionName",
@@ -1336,6 +1282,8 @@ function reviewFormCard(
   initialValues: {
     fullName?: string;
     employeeEmail?: string;
+    previousReviewStatus?: string;
+    previousReviewUrl?: string;
   } = {}
 ): Record<string, unknown> {
   return {
@@ -1359,6 +1307,15 @@ function reviewFormCard(
               ...(initialValues.employeeEmail ? { value: initialValues.employeeEmail } : {})
             }
           },
+          ...(initialValues.previousReviewStatus
+            ? [
+              {
+                textParagraph: {
+                  text: initialValues.previousReviewStatus
+                }
+              }
+            ]
+            : []),
           {
             dateTimePicker: {
               name: "reviewDate",
@@ -1393,10 +1350,15 @@ function reviewFormCard(
                   onClick: {
                     action: {
                       function: `${config.appBaseUrl}/google-chat/events`,
+                      requiredWidgets: ["fullName", "employeeEmail", "reviewDate", "meetingTime"],
                       parameters: [
                         {
                           key: "actionName",
                           value: SUBMIT_FUNCTION
+                        },
+                        {
+                          key: "previousReviewUrl",
+                          value: initialValues.previousReviewUrl ?? ""
                         }
                       ]
                     }

@@ -1,7 +1,7 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import type { AppConfig } from "./config.js";
-import type { OAuthState, PendingReviewRequest, ReviewerToken } from "./types.js";
+import type { OAuthState, ReviewerToken } from "./types.js";
 
 let prismaClient: PrismaClient | null = null;
 
@@ -11,8 +11,6 @@ export interface TokenStorage {
   delete(chatUserId: string): Promise<void>;
   saveOAuthState(state: OAuthState): Promise<void>;
   consumeOAuthState(state: string): Promise<OAuthState | null>;
-  savePendingReview(request: PendingReviewRequest): Promise<void>;
-  consumePendingReview(chatUserId: string): Promise<PendingReviewRequest | null>;
 }
 
 export function createTokenStorage(config: AppConfig): TokenStorage {
@@ -35,20 +33,9 @@ type PrismaOAuthStateDelegate = {
   delete(args: { where: { state: string } }): Promise<unknown>;
 };
 
-type PrismaPendingReviewDelegate = {
-  upsert(args: {
-    where: { chatUserId: string };
-    create: PendingReviewRequest;
-    update: PendingReviewRequest;
-  }): Promise<PendingReviewRequest>;
-  findUnique(args: { where: { chatUserId: string } }): Promise<PendingReviewRequest | null>;
-  delete(args: { where: { chatUserId: string } }): Promise<unknown>;
-};
-
 type PrismaStorageClient = {
   reviewerToken: PrismaReviewerTokenDelegate;
   oauthState: PrismaOAuthStateDelegate;
-  pendingReview: PrismaPendingReviewDelegate;
 };
 
 export class PrismaTokenStorage implements TokenStorage {
@@ -99,28 +86,6 @@ export class PrismaTokenStorage implements TokenStorage {
     return stateData;
   }
 
-  async savePendingReview(request: PendingReviewRequest): Promise<void> {
-    await this.prisma.pendingReview.upsert({
-      where: { chatUserId: request.chatUserId },
-      create: request,
-      update: request
-    });
-  }
-
-  async consumePendingReview(chatUserId: string): Promise<PendingReviewRequest | null> {
-    const pendingReview = await this.prisma.pendingReview.findUnique({
-      where: { chatUserId }
-    });
-
-    if (!pendingReview) {
-      return null;
-    }
-
-    await this.prisma.pendingReview.delete({
-      where: { chatUserId }
-    });
-    return pendingReview;
-  }
 }
 
 function createPrismaTokenStorage(config: AppConfig): TokenStorage {
@@ -189,26 +154,6 @@ function createPrismaTokenStorage(config: AppConfig): TokenStorage {
       async delete({ where }) {
         await prismaClient!.oAuthState.delete({ where });
       }
-    },
-    pendingReview: {
-      async upsert({ where, create, update }) {
-        const record = await prismaClient!.pendingReview.upsert({
-          where,
-          create: mapPendingReviewForDb(create),
-          update: mapPendingReviewForDb(update)
-        });
-        return mapPendingReviewFromDb(record);
-      },
-      async findUnique({ where }) {
-        const record = await prismaClient!.pendingReview.findUnique({ where });
-        if (!record) {
-          return null;
-        }
-        return mapPendingReviewFromDb(record);
-      },
-      async delete({ where }) {
-        await prismaClient!.pendingReview.delete({ where });
-      }
     }
   });
 }
@@ -228,40 +173,5 @@ function mapOAuthStateForDb(state: OAuthState) {
     chatUserId: state.chatUserId,
     expiresAt: new Date(state.expiresAt),
     createdAt: new Date(state.createdAt)
-  };
-}
-
-function mapPendingReviewForDb(review: PendingReviewRequest) {
-  return {
-    chatUserId: review.chatUserId,
-    reviewMonth: review.reviewMonth,
-    createdAt: new Date(review.createdAt),
-    fullName: review.fullName,
-    employeeEmail: review.employeeEmail,
-    reviewDate: review.reviewDate,
-    meetingTime: review.meetingTime,
-    needsClientForm: review.needsClientForm
-  };
-}
-
-function mapPendingReviewFromDb(review: {
-  chatUserId: string;
-  reviewMonth: string;
-  createdAt: Date;
-  fullName: string;
-  employeeEmail: string;
-  reviewDate: string;
-  meetingTime: string;
-  needsClientForm: boolean;
-}): PendingReviewRequest {
-  return {
-    chatUserId: review.chatUserId,
-    reviewMonth: review.reviewMonth,
-    createdAt: review.createdAt.toISOString(),
-    fullName: review.fullName,
-    employeeEmail: review.employeeEmail,
-    reviewDate: review.reviewDate,
-    meetingTime: review.meetingTime,
-    needsClientForm: review.needsClientForm
   };
 }

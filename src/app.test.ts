@@ -34,10 +34,6 @@ const storage: TokenStorage = {
   async saveOAuthState() {},
   async consumeOAuthState() {
     return null;
-  },
-  async savePendingReview() {},
-  async consumePendingReview() {
-    return null;
   }
 };
 

@@ -18,12 +18,7 @@ export type ReviewRequest = {
   reviewDate: string;
   meetingTime: string;
   needsClientForm: boolean;
-};
-
-export type PendingReviewRequest = ReviewRequest & {
-  chatUserId: string;
-  reviewMonth: string;
-  createdAt: string;
+  previousReviewUrl: string;
 };
 
 export type ChatEvent = {

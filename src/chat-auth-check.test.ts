@@ -40,10 +40,6 @@ const storageWithToken: TokenStorage = {
   async saveOAuthState() {},
   async consumeOAuthState() {
     return null;
-  },
-  async savePendingReview() {},
-  async consumePendingReview() {
-    return null;
   }
 };
 
@@ -100,10 +96,6 @@ test("buildAuthCheckReport reports missing reviewer token", async () => {
     async delete() {},
     async saveOAuthState() {},
     async consumeOAuthState() {
-      return null;
-    },
-    async savePendingReview() {},
-    async consumePendingReview() {
       return null;
     }
   };

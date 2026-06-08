@@ -20,14 +20,3 @@ model OAuthState {
   expiresAt DateTime
   createdAt DateTime
 }
-
-model PendingReview {
-  chatUserId      String   @id
-  reviewMonth     String
-  createdAt       DateTime
-  fullName        String
-  employeeEmail   String
-  reviewDate      String
-  meetingTime     String
-  needsClientForm Boolean
-}
