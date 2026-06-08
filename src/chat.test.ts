@@ -1176,43 +1176,34 @@ test('/review submit creates a test folder and returns its link', async () => {
 
 	const messageText = sentMessages[1]?.text ?? '';
 
-	assert.match(messageText, /Готово: Performance Review для Ivan Petrov/);
-	assert.match(
+	assert.equal(
 		messageText,
-		/Папка ревью: 2026\.06 - https:\/\/drive\.google\.com\/folder/,
-	);
-	assert.match(
-		messageText,
-		/PR report: https:\/\/docs\.google\.com\/document\/report-id/,
-	);
-	assert.match(
-		messageText,
-		/Previous review: https:\/\/docs\.google\.com\/document\/previous-report-id/,
-	);
-	assert.match(
-		messageText,
-		/Internal feedback form: https:\/\/docs\.google\.com\/forms\/internal-form-id/,
-	);
-	assert.match(
-		messageText,
-		/Client feedback form: https:\/\/docs\.google\.com\/forms\/client-form-id/,
-	);
-	assert.match(
-		messageText,
-		/Встреча: Performance Review: Ivan Petrov - 2026-06-15T14:30:00\+05:00 - https:\/\/calendar\.google\.com\/event\?eid=calendar-event-id/,
-	);
-	assert.match(messageText, /Reminders:/);
-	assert.match(
-		messageText,
-		/Запустить сбор отзывов для PR Ivan Petrov - 2026-05-26T12:00:00\+05:00 - https:\/\/calendar\.google\.com\/event\?eid=collect-reminder-id/,
-	);
-	assert.match(
-		messageText,
-		/Проверить отзывы для PR Ivan Petrov - 2026-06-04T12:00:00\+05:00 - https:\/\/calendar\.google\.com\/event\?eid=check-reminder-id/,
-	);
-	assert.match(
-		messageText,
-		/Подготовиться к проведению PR Ivan Petrov - 2026-06-10T12:00:00\+05:00 - https:\/\/calendar\.google\.com\/event\?eid=prepare-reminder-id/,
+		[
+			'Performance Review — Ivan Petrov',
+			'',
+			'Дата ревью: 15.06.2026, 14:30',
+			'',
+			'План:',
+			'26.05 → Сбор отзывов',
+			'04.06 → Проверка отзывов',
+			'10.06 → Подготовка к встрече',
+			'15.06 → Встреча',
+			'',
+			'📁 Папка ревью',
+			'https://drive.google.com/folder',
+			'',
+			'📅 Встреча',
+			'https://calendar.google.com/event?eid=calendar-event-id',
+			'',
+			'📝 Форма обратной связи (fuse8)',
+			'https://docs.google.com/forms/internal-form-id',
+			'',
+			'📝 Форма обратной связи (клиенту)',
+			'https://docs.google.com/forms/client-form-id',
+			'',
+			'📄 Отчёт',
+			'https://docs.google.com/document/report-id',
+		].join('\n'),
 	);
 	assert.deepEqual(response.actionResponse, {
 		type: 'DIALOG',
@@ -1409,9 +1400,9 @@ test('/review submit includes only internal form link when client form is not ne
 
 	assert.match(
 		messageText,
-		/Internal feedback form: https:\/\/docs\.google\.com\/forms\/internal-form-id/,
+		/📝 Форма обратной связи \(fuse8\)\nhttps:\/\/docs\.google\.com\/forms\/internal-form-id/,
 	);
-	assert.doesNotMatch(messageText, /Client feedback form:/);
+	assert.doesNotMatch(messageText, /📝 Форма обратной связи \(клиенту\)/);
 });
 
 test('/review submit asks to configure internal form template when it is missing', async () => {
@@ -1510,10 +1501,7 @@ test('/review submit creates review without previous review when previousReviewU
 
 	const messageText = sentMessages[1] ?? '';
 
-	assert.match(
-		messageText,
-		/Папка ревью: 2026\.06 - https:\/\/drive\.google\.com\/folder/,
-	);
+	assert.doesNotMatch(messageText, /Папка ревью:/);
 	assert.doesNotMatch(messageText, /Previous review:/);
 	assert.equal(sentMessages.length, 2);
 });

@@ -791,7 +791,6 @@ async function runReviewWorkflow(
 		request.fullName,
 		folder,
 		request.needsClientForm,
-		previousReviewUrl,
 		calendarEvent,
 		reminderEvents,
 	);
@@ -946,38 +945,74 @@ function formatReviewSuccessMessage(
 	fullName: string,
 	folder: CreatedFolder,
 	needsClientForm: boolean,
-	previousReviewUrl = '',
 	calendarEvent?: CreatedCalendarEvent,
 	reminderEvents: CreatedReviewerReminderEvent[] = [],
 ): string {
 	return [
-		`Готово: Performance Review для ${fullName}`,
-		`Папка ревью: ${folder.name} - ${folder.webViewLink}`,
-		...(folder.report?.webViewLink
-			? [`PR report: ${folder.report.webViewLink}`]
-			: []),
-		...(previousReviewUrl ? [`Previous review: ${previousReviewUrl}`] : []),
-		...(folder.internalForm?.webViewLink
-			? [`Internal feedback form: ${folder.internalForm.webViewLink}`]
-			: []),
-		...(needsClientForm && folder.clientForm?.webViewLink
-			? [`Client feedback form: ${folder.clientForm.webViewLink}`]
-			: []),
+		`Performance Review — ${fullName}`,
 		...(calendarEvent
 			? [
-					`Встреча: ${calendarEvent.summary} - ${calendarEvent.startDateTime} - ${calendarEvent.htmlLink}`,
+					'',
+					`Дата ревью: ${formatChatFullDateTime(calendarEvent.startDateTime)}`,
 				]
 			: []),
-		...(reminderEvents.length
+		...(calendarEvent || reminderEvents.length
 			? [
-					'Reminders:',
+					'',
+					'План:',
 					...reminderEvents.map(
-						(event) =>
-							`${event.summary} - ${event.startDateTime} - ${event.htmlLink}`,
+						(event, index) =>
+							`${formatChatPlanDate(event.startDateTime)} → ${formatPlanLabel(index, event.summary)}`,
 					),
+					...(calendarEvent
+						? [`${formatChatPlanDate(calendarEvent.startDateTime)} → Встреча`]
+						: []),
 				]
+			: []),
+		'',
+		'📁 Папка ревью',
+		folder.webViewLink,
+		...(calendarEvent ? ['', '📅 Встреча', calendarEvent.htmlLink] : []),
+		...(folder.internalForm?.webViewLink
+			? ['', '📝 Форма обратной связи (fuse8)', folder.internalForm.webViewLink]
+			: []),
+		...(needsClientForm && folder.clientForm?.webViewLink
+			? ['', '📝 Форма обратной связи (клиенту)', folder.clientForm.webViewLink]
+			: []),
+		...(folder.report?.webViewLink
+			? ['', '📄 Отчёт', folder.report.webViewLink]
 			: []),
 	].join('\n');
+}
+
+const REVIEW_PLAN_LABELS = [
+	'Сбор отзывов',
+	'Проверка отзывов',
+	'Подготовка к встрече',
+];
+
+function formatChatFullDateTime(dateTime: string): string {
+	const match = dateTime.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2})/);
+	if (!match) {
+		return dateTime;
+	}
+
+	const [, year, month, day, time] = match;
+	return `${day}.${month}.${year}, ${time}`;
+}
+
+function formatChatPlanDate(dateTime: string): string {
+	const match = dateTime.match(/^(\d{4})-(\d{2})-(\d{2})/);
+	if (!match) {
+		return dateTime;
+	}
+
+	const [, , month, day] = match;
+	return `${day}.${month}`;
+}
+
+function formatPlanLabel(index: number, fallback: string): string {
+	return REVIEW_PLAN_LABELS[index] ?? fallback;
 }
 
 function isEmailInDomains(email: string, domains: string[]): boolean {
