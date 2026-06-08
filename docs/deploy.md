@@ -42,7 +42,7 @@ GET https://<your-vercel-domain>/healthz
 Ожидаемый ответ:
 
 ```json
-{"ok":true}
+{ "ok": true }
 ```
 
 ## Шаг 2. Production storage через Neon

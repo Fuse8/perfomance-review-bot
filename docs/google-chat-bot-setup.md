@@ -1,10 +1,12 @@
 # Google cloud console settings
 
 ## Полезные ссылки
+
 - [https://developers.google.com/workspace/chat/api/reference](https://developers.google.com/workspace/chat/api/reference)
 - [https://docs.cloud.google.com/docs/overview](https://docs.cloud.google.com/docs/overview)
 
 ## Summary
+
 - Созданы два проекта в google cloud, один для разработки и доступа через ngrok, второй в публичном доступе на vercel
 - Chat bot использует Google API's, основное это Google Chat API для самого бота и slash-команд.
 - Google Auth Platform для OAuth. Настраиваем права, которые запросит бот для работы от имени пользователя.
@@ -17,7 +19,7 @@
 1. Создать Google Cloud project в Google Cloud Console
 
 2. Настроить Google Chat API
-Перейти в APIs & Services -> Library. Найти Google Chat API и нажать enable:
+   Перейти в APIs & Services -> Library. Найти Google Chat API и нажать enable:
 
 Затем переходим в Configuration, основные моменты:
 
@@ -44,7 +46,7 @@ Name: /info
 Command ID: 2
 ```
 
-Visibility (можно не заполнять, а выложить с помощью  7 шага):
+Visibility (можно не заполнять, а выложить с помощью 7 шага):
 
 - ограничить с помощью email'ов или рабочей группой
 
@@ -59,7 +61,7 @@ Visibility (можно не заполнять, а выложить с помо�
 - Google People API (чтение сотрудников для селекта)
 
 4. Настроить OAuth
-Перейти в Google Auth Platform и нажать Get started. Заполнить форму. В основном это нужно, чтобы в OAuth авторизации показывалось, что за приложение запрашивает доступ, поэтому там поля email поддержки, название приложения, также выбираем Audience internal, так как публикуем в рамках компании.
+   Перейти в Google Auth Platform и нажать Get started. Заполнить форму. В основном это нужно, чтобы в OAuth авторизации показывалось, что за приложение запрашивает доступ, поэтому там поля email поддержки, название приложения, также выбираем Audience internal, так как публикуем в рамках компании.
 
 Затем создаем OAuth client:
 
@@ -69,23 +71,24 @@ Visibility (можно не заполнять, а выложить с помо�
 ```text
 https://<url>/auth/google/callback
 ```
+
 Скопировать Client Id и Client Secret, добавить в переменные. Их можно посмотреть, если нажать на созданный OAuth client.
 
 5. Настроить Data Access
-В разделе Google Auth Platform открыть Data Access и добавить нужные на основании включенных API. Доступы openid, email, profile должны быть включены по умолчанию, но для наглядности их также можно добавить.
+   В разделе Google Auth Platform открыть Data Access и добавить нужные на основании включенных API. Доступы openid, email, profile должны быть включены по умолчанию, но для наглядности их также можно добавить.
 
-  - `openid`
-  - `email`
-  - `profile`
-  - `https://www.googleapis.com/auth/drive`
-  - `https://www.googleapis.com/auth/documents`
-  - `https://www.googleapis.com/auth/calendar.events`
-  - `https://www.googleapis.com/auth/directory.readonly`
-  - `https://www.googleapis.com/auth/forms.body`
+- `openid`
+- `email`
+- `profile`
+- `https://www.googleapis.com/auth/drive`
+- `https://www.googleapis.com/auth/documents`
+- `https://www.googleapis.com/auth/calendar.events`
+- `https://www.googleapis.com/auth/directory.readonly`
+- `https://www.googleapis.com/auth/forms.body`
 
 6. Создать Service Account
-Перейти в IAM & Admin -> Service Accounts -> Create service account.
-Роли можно не выбирать. После этого нужно создать key (не самый безопасный способ, но другие способы сложнее настраиваются и подходят больше, когда приложение разворачивается в google cloud).
+   Перейти в IAM & Admin -> Service Accounts -> Create service account.
+   Роли можно не выбирать. После этого нужно создать key (не самый безопасный способ, но другие способы сложнее настраиваются и подходят больше, когда приложение разворачивается в google cloud).
 
 Локально сохраняем ключ в .data/service-account.json (.gitignore обязательно).
 

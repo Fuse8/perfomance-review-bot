@@ -1,60 +1,60 @@
 export type ReviewerToken = {
-  chatUserId: string;
-  googleUserEmail: string;
-  refreshToken: string;
-  createdAt: string;
+	chatUserId: string;
+	googleUserEmail: string;
+	refreshToken: string;
+	createdAt: string;
 };
 
 export type OAuthState = {
-  state: string;
-  chatUserId: string;
-  expiresAt: string;
-  createdAt: string;
+	state: string;
+	chatUserId: string;
+	expiresAt: string;
+	createdAt: string;
 };
 
 export type ReviewRequest = {
-  fullName: string;
-  employeeEmail: string;
-  reviewDate: string;
-  meetingTime: string;
-  needsClientForm: boolean;
-  previousReviewUrl: string;
+	fullName: string;
+	employeeEmail: string;
+	reviewDate: string;
+	meetingTime: string;
+	needsClientForm: boolean;
+	previousReviewUrl: string;
 };
 
 export type ChatEvent = {
-  type?: string;
-  dialogEventType?: string;
-  isDialogEvent?: boolean;
-  appCommandMetadata?: {
-    appCommandId?: number;
-    appCommandType?: string;
-  };
-  space?: {
-    name?: string;
-  };
-  user?: {
-    name?: string;
-    displayName?: string;
-    email?: string;
-  };
-  message?: {
-    slashCommand?: {
-      commandId?: string;
-    };
-    text?: string;
-  };
-  common?: {
-    invokedFunction?: string;
-    formInputs?: Record<string, ChatFormInput>;
-    parameters?: Record<string, string>;
-  };
+	type?: string;
+	dialogEventType?: string;
+	isDialogEvent?: boolean;
+	appCommandMetadata?: {
+		appCommandId?: number;
+		appCommandType?: string;
+	};
+	space?: {
+		name?: string;
+	};
+	user?: {
+		name?: string;
+		displayName?: string;
+		email?: string;
+	};
+	message?: {
+		slashCommand?: {
+			commandId?: string;
+		};
+		text?: string;
+	};
+	common?: {
+		invokedFunction?: string;
+		formInputs?: Record<string, ChatFormInput>;
+		parameters?: Record<string, string>;
+	};
 };
 
 export type ChatFormInput = {
-  stringInputs?: {
-    value?: string[];
-  };
-  dateInput?: {
-    msSinceEpoch?: string;
-  };
+	stringInputs?: {
+		value?: string[];
+	};
+	dateInput?: {
+		msSinceEpoch?: string;
+	};
 };

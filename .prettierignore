@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+.vercel/
+.codex/
+.data/
+*.log
+pnpm-lock.yaml

@@ -1,10 +1,10 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "pnpm prisma:generate && pnpm prisma:migrate:deploy && pnpm build",
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/api/index"
-    }
-  ]
+	"$schema": "https://openapi.vercel.sh/vercel.json",
+	"buildCommand": "pnpm prisma:generate && pnpm prisma:migrate:deploy && pnpm build",
+	"rewrites": [
+		{
+			"source": "/(.*)",
+			"destination": "/api/index"
+		}
+	]
 }

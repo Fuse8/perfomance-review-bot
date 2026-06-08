@@ -10,20 +10,21 @@ MVP-сценарий реализован: `/review` запускает workflow
 
 ## Planned improvements
 
-| Priority | Status | Area | Task |
-| --- | --- | --- | --- |
-| P1 | Planned | Auth / Storage | [Auth storage lifecycle](tasks/auth-storage-lifecycle.md) |
-| P1 | Planned | UX | [Form validation UX](tasks/form-validation-ux.md) |
-| P2 | Planned | Chat UX | [Chat output format](tasks/chat-output-format.md) |
-| P2 | Planned | Calendar | [Business days reminders](tasks/business-days-reminders.md) |
-| P2 | Planned | TypeScript | [Google API types](tasks/google-types.md) |
-| P2 | Planned | Data | [Data retention](tasks/data-retention.md) |
+| Priority | Status  | Area           | Task                                                        |
+| -------- | ------- | -------------- | ----------------------------------------------------------- |
+| P1       | Planned | Auth / Storage | [Auth storage lifecycle](tasks/auth-storage-lifecycle.md)   |
+| P1       | Planned | UX             | [Form validation UX](tasks/form-validation-ux.md)           |
+| P2       | Planned | Chat UX        | [Chat output format](tasks/chat-output-format.md)           |
+| P2       | Planned | Calendar       | [Business days reminders](tasks/business-days-reminders.md) |
+| P2       | Planned | TypeScript     | [Google API types](tasks/google-types.md)                   |
+| P2       | Planned | Data           | [Data retention](tasks/data-retention.md)                   |
 
 ## Completed
 
-| Date | Area | Task |
-| --- | --- | --- |
-| 2026-06-08 | Docs | [Documentation knowledge base](archive/2026-06-08-documentation-knowledge-base.md) |
+| Date       | Area    | Task                                                                                               |
+| ---------- | ------- | -------------------------------------------------------------------------------------------------- |
+| 2026-06-08 | Docs    | [Documentation knowledge base](archive/2026-06-08-documentation-knowledge-base.md)                 |
+| 2026-06-08 | Tooling | [ESLint, Prettier, EditorConfig, Tsconfig](archive/2026-06-08-tooling-eslint-prettier-tsconfig.md) |
 
 ## Правила обновления
 
