@@ -23,3 +23,4 @@ Core project information, technology stack, environment configuration, and avail
 
 - Use `pnpm test:quiet` for tests.
 - If a test command fails, rerun the smallest relevant test or inspect the failure output before running the full suite again.
+- After changes, run `pnpm format`, `pnpm eslint:fix`, then verify with `pnpm type-check`, `pnpm test:quiet`.

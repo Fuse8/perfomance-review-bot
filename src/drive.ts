@@ -1,5 +1,6 @@
 import type { OAuth2Client } from 'google-auth-library';
 import { google } from 'googleapis';
+import type { docs_v1, drive_v3, forms_v1 } from 'googleapis';
 import type { AppConfig } from './config.js';
 import { createOAuthClient } from './oauth.js';
 
@@ -37,62 +38,54 @@ export type ReviewFolderRequest = {
 };
 
 type DriveListResource = {
-	list(params: {
-		q: string;
-		fields: string;
-		pageSize: number;
-		supportsAllDrives: boolean;
-		includeItemsFromAllDrives: boolean;
-	}): Promise<{
-		data: {
-			files?: Array<{
-				id?: string | null;
-				name?: string | null;
-				webViewLink?: string | null;
-			}>;
-		};
+	list(
+		params: drive_v3.Params$Resource$Files$List & {
+			q: string;
+			fields: string;
+			pageSize: number;
+			supportsAllDrives: boolean;
+			includeItemsFromAllDrives: boolean;
+		},
+	): Promise<{
+		data: drive_v3.Schema$FileList;
 	}>;
 };
 
 type DriveFilesResource = DriveListResource & {
-	get(params: {
-		fileId: string;
-		fields: string;
-		supportsAllDrives: boolean;
-	}): Promise<{
-		data: {
-			mimeType?: string | null;
-		};
+	get(
+		params: drive_v3.Params$Resource$Files$Get & {
+			fileId: string;
+			fields: string;
+			supportsAllDrives: boolean;
+		},
+	): Promise<{
+		data: drive_v3.Schema$File;
 	}>;
-	create(params: {
-		requestBody: {
-			name: string;
-			mimeType: string;
-			parents: string[];
-		};
-		fields: string;
-		supportsAllDrives: boolean;
-	}): Promise<{
-		data: {
-			id?: string | null;
-			name?: string | null;
-			webViewLink?: string | null;
-		};
+	create(
+		params: drive_v3.Params$Resource$Files$Create & {
+			requestBody: drive_v3.Schema$File & {
+				name: string;
+				mimeType: string;
+				parents: string[];
+			};
+			fields: string;
+			supportsAllDrives: boolean;
+		},
+	): Promise<{
+		data: drive_v3.Schema$File;
 	}>;
-	copy(params: {
-		fileId: string;
-		requestBody: {
-			name: string;
-			parents: string[];
-		};
-		fields: string;
-		supportsAllDrives: boolean;
-	}): Promise<{
-		data: {
-			id?: string | null;
-			name?: string | null;
-			webViewLink?: string | null;
-		};
+	copy(
+		params: drive_v3.Params$Resource$Files$Copy & {
+			fileId: string;
+			requestBody: drive_v3.Schema$File & {
+				name: string;
+				parents: string[];
+			};
+			fields: string;
+			supportsAllDrives: boolean;
+		},
+	): Promise<{
+		data: drive_v3.Schema$File;
 	}>;
 };
 
@@ -100,37 +93,41 @@ type DrivePermissionRequestBody =
 	| {
 			type: 'user';
 			role: 'writer';
-			emailAddress: string;
+			emailAddress: NonNullable<drive_v3.Schema$Permission['emailAddress']>;
 	  }
 	| {
 			type: 'domain';
 			role: 'reader';
-			domain: string;
+			domain: NonNullable<drive_v3.Schema$Permission['domain']>;
 			view: 'published';
 	  };
 
 type DrivePermissionsResource = {
-	create(params: {
-		fileId: string;
-		requestBody: DrivePermissionRequestBody;
-		fields: string;
-		supportsAllDrives: boolean;
-		sendNotificationEmail: boolean;
-	}): Promise<unknown>;
+	create(
+		params: Omit<drive_v3.Params$Resource$Permissions$Create, 'requestBody'> & {
+			fileId: string;
+			requestBody: DrivePermissionRequestBody;
+			fields: string;
+			supportsAllDrives: boolean;
+			sendNotificationEmail: boolean;
+		},
+	): Promise<unknown>;
 };
 
 type FormsPublishResource = {
-	setPublishSettings(params: {
-		formId: string;
-		requestBody: {
-			publishSettings: {
-				publishState: {
-					isPublished: boolean;
-					isAcceptingResponses: boolean;
+	setPublishSettings(
+		params: forms_v1.Params$Resource$Forms$Setpublishsettings & {
+			formId: string;
+			requestBody: forms_v1.Schema$SetPublishSettingsRequest & {
+				publishSettings: {
+					publishState: {
+						isPublished: boolean;
+						isAcceptingResponses: boolean;
+					};
 				};
 			};
-		};
-	}): Promise<unknown>;
+		},
+	): Promise<unknown>;
 };
 
 type DriveResource = {
@@ -138,20 +135,22 @@ type DriveResource = {
 	permissions?: DrivePermissionsResource;
 	forms?: FormsPublishResource;
 	documents?: {
-		batchUpdate(params: {
-			documentId: string;
-			requestBody: {
-				requests: Array<{
-					replaceAllText: {
-						containsText: {
-							text: string;
-							matchCase: boolean;
+		batchUpdate(
+			params: docs_v1.Params$Resource$Documents$Batchupdate & {
+				documentId: string;
+				requestBody: docs_v1.Schema$BatchUpdateDocumentRequest & {
+					requests: Array<{
+						replaceAllText: {
+							containsText: {
+								text: string;
+								matchCase: boolean;
+							};
+							replaceText: string;
 						};
-						replaceText: string;
-					};
-				}>;
-			};
-		}): Promise<unknown>;
+					}>;
+				};
+			},
+		): Promise<unknown>;
 	};
 };
 

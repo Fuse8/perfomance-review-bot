@@ -18,7 +18,16 @@ import { formatAuthRequiredMessage, isOAuthAuthError } from './oauth-errors.js';
 import { buildAuthUrl } from './oauth.js';
 import { searchDirectoryEmployees } from './people.js';
 import type { TokenStorage } from './storage.js';
-import type { ChatEvent, ChatFormInput, ReviewRequest } from './types.js';
+import type {
+	ChatCard,
+	ChatEvent,
+	ChatFormInput,
+	ChatFormInputs,
+	ChatParameters,
+	ChatResponse,
+	ChatSelectionItem,
+	ReviewRequest,
+} from './types.js';
 
 const SUBMIT_FUNCTION = 'submitReview';
 const SELECT_EMPLOYEE_FUNCTION = 'selectEmployee';
@@ -131,10 +140,10 @@ export function createChatEventHandler(
 		config: AppConfig,
 		storage: TokenStorage,
 		event: ChatEvent,
-	): Promise<Record<string, unknown>> {
-		const chatUserId = event.user?.name;
+	): Promise<ChatResponse> {
+		const chatUserId = event.user?.name ?? undefined;
 		const appCommandId = resolveAppCommandId(event);
-		const invokedFunction = event.common?.invokedFunction;
+		const invokedFunction = event.common?.invokedFunction ?? undefined;
 		const actionName = resolveActionName(event);
 		const formInputs = event.common?.formInputs ?? {};
 
@@ -240,7 +249,7 @@ async function handleAddedToSpace(
 	storage: TokenStorage,
 	chatUserId: string | undefined,
 	deps: ChatEventHandlerDeps,
-): Promise<Record<string, unknown>> {
+): Promise<ChatResponse> {
 	if (!chatUserId) {
 		logChatEvent('addedToSpace.missingUser');
 		return textResponse('Не удалось определить пользователя Google Chat.');
@@ -275,7 +284,7 @@ async function handleEmployeeSuggestions(
 	chatUserId: string | undefined,
 	event: ChatEvent,
 	deps: ChatEventHandlerDeps,
-): Promise<Record<string, unknown>> {
+): Promise<ChatResponse> {
 	if (!chatUserId) {
 		return employeeSuggestionsResponse([]);
 	}
@@ -369,7 +378,7 @@ async function handleEmployeeFolderCheck(
 	chatUserId: string,
 	event: ChatEvent,
 	deps: ChatEventHandlerDeps,
-): Promise<Record<string, unknown>> {
+): Promise<ChatResponse> {
 	const isDialogSubmit = event.dialogEventType === 'SUBMIT_DIALOG';
 	const inputs = event.common?.formInputs ?? {};
 	const manualFullName = getStringInput(inputs.manualFullName).trim();
@@ -502,7 +511,7 @@ async function handleEmployeeFolderCheck(
 function handleEmployeeSelect(
 	config: AppConfig,
 	event: ChatEvent,
-): Record<string, unknown> {
+): ChatResponse {
 	const inputs = event.common?.formInputs ?? {};
 	const selectedEmployee = parseEmployeeSelection(
 		getLastStringInput(inputs.employeeFolder),
@@ -530,7 +539,7 @@ async function handleReviewSubmit(
 	chatUserId: string,
 	event: ChatEvent,
 	deps: ChatEventHandlerDeps,
-): Promise<Record<string, unknown>> {
+): Promise<ChatResponse> {
 	const isDialogSubmit = event.dialogEventType === 'SUBMIT_DIALOG';
 	const inputs = event.common?.formInputs ?? {};
 	logChatEvent('submit.inputs', summarizeFormInputs(inputs));
@@ -593,7 +602,7 @@ async function handleReviewSubmit(
 function startReviewWorkflowFromDialog(
 	params: ReviewWorkflowParams,
 	deps: ChatEventHandlerDeps,
-): Record<string, unknown> {
+): ChatResponse {
 	void sendSubmitResultToChat(
 		params.config,
 		deps,
@@ -815,7 +824,7 @@ function respondReviewMessage(
 	isDialogSubmit: boolean,
 	text: string,
 	statusCode: 'OK' | 'INVALID_ARGUMENT',
-): Record<string, unknown> {
+): ChatResponse {
 	if (isDialogSubmit) {
 		return dialogActionStatusResponse(text, statusCode);
 	}
@@ -824,8 +833,8 @@ function respondReviewMessage(
 
 function parseReviewRequest(
 	config: AppConfig,
-	inputs: Record<string, ChatFormInput>,
-	parameters: Record<string, string> = {},
+	inputs: ChatFormInputs,
+	parameters: ChatParameters = {},
 ): { ok: true; value: ReviewRequest } | { ok: false; error: string } {
 	const fullName = getStringInput(inputs.fullName).trim();
 	const employeeEmail = getStringInput(inputs.employeeEmail)
@@ -913,9 +922,7 @@ function logChatEvent(message: string, data?: Record<string, unknown>): void {
 	console.log(`[chat] ${timestamp} ${message}`);
 }
 
-function summarizeFormInputs(
-	inputs: Record<string, ChatFormInput>,
-): Record<string, unknown> {
+function summarizeFormInputs(inputs: ChatFormInputs): Record<string, unknown> {
 	return Object.fromEntries(
 		Object.entries(inputs).map(([key, value]) => [
 			key,
@@ -982,7 +989,7 @@ function isValidMeetingTime(value: string): boolean {
 }
 
 function resolveChatSpaceName(event: ChatEvent): string | undefined {
-	return event.space?.name;
+	return event.space?.name ?? undefined;
 }
 
 function isEmployeeSuggestionsEvent(
@@ -999,13 +1006,17 @@ function isEmployeeSuggestionsEvent(
 }
 
 function resolveActionName(event: ChatEvent): string | undefined {
-	return event.common?.parameters?.actionName ?? event.common?.invokedFunction;
+	return (
+		event.common?.parameters?.actionName ??
+		event.common?.invokedFunction ??
+		undefined
+	);
 }
 
 function resolveAppCommandId(event: ChatEvent): number | undefined {
 	const appCommandId = event.appCommandMetadata?.appCommandId;
 
-	if (appCommandId !== undefined) {
+	if (appCommandId !== undefined && appCommandId !== null) {
 		return appCommandId;
 	}
 
@@ -1081,7 +1092,7 @@ async function respondReviewerAuthRequired(
 	event: ChatEvent,
 	kind: AuthRequiredResponseKind,
 	options?: { clearStaleToken?: boolean },
-): Promise<Record<string, unknown>> {
+): Promise<ChatResponse> {
 	if (options?.clearStaleToken) {
 		await storage.delete(chatUserId);
 	}
@@ -1119,7 +1130,7 @@ async function respondReviewerAuthRequired(
 
 function respondDialogSubmitAck(
 	statusCode: 'OK' | 'INVALID_ARGUMENT',
-): Record<string, unknown> {
+): ChatResponse {
 	return dialogActionStatusResponse('', statusCode);
 }
 
@@ -1152,14 +1163,14 @@ async function sendSubmitResultToChat(
 	}
 }
 
-function textResponse(text: string): Record<string, unknown> {
+function textResponse(text: string): ChatResponse {
 	return { text };
 }
 
 function dialogActionStatusResponse(
 	text: string,
 	statusCode: 'OK' | 'INVALID_ARGUMENT',
-): Record<string, unknown> {
+): ChatResponse {
 	return {
 		actionResponse: {
 			type: 'DIALOG',
@@ -1173,9 +1184,7 @@ function dialogActionStatusResponse(
 	};
 }
 
-function dialogResponse(
-	card: Record<string, unknown>,
-): Record<string, unknown> {
+function dialogResponse(card: ChatCard): ChatResponse {
 	return {
 		actionResponse: {
 			type: 'DIALOG',
@@ -1188,7 +1197,7 @@ function dialogResponse(
 	};
 }
 
-function actionResponseText(text: string): Record<string, unknown> {
+function actionResponseText(text: string): ChatResponse {
 	return {
 		actionResponse: {
 			type: 'NEW_MESSAGE',
@@ -1197,9 +1206,7 @@ function actionResponseText(text: string): Record<string, unknown> {
 	};
 }
 
-function actionResponseCard(
-	card: Record<string, unknown>,
-): Record<string, unknown> {
+function actionResponseCard(card: ChatCard): ChatResponse {
 	return {
 		actionResponse: {
 			type: 'NEW_MESSAGE',
@@ -1214,8 +1221,8 @@ function actionResponseCard(
 }
 
 function employeeSuggestionsResponse(
-	suggestions: Array<{ text: string; value: string; bottomText?: string }>,
-): Record<string, unknown> {
+	suggestions: ChatSelectionItem[],
+): ChatResponse {
 	return {
 		actionResponse: {
 			type: 'UPDATE_WIDGET',
@@ -1347,7 +1354,7 @@ function employeeLookupCard(
 		selectedEmployeeValue: string;
 		folderError?: string;
 	},
-): Record<string, unknown> {
+): ChatCard {
 	return {
 		header: {
 			title: 'Выбор сотрудника',
@@ -1454,7 +1461,7 @@ function reviewFormCard(
 		previousReviewStatus?: string;
 		previousReviewUrl?: string;
 	} = {},
-): Record<string, unknown> {
+): ChatCard {
 	return {
 		header: {
 			title: 'Запуск Performance Review',
@@ -1551,7 +1558,7 @@ function reviewFormCard(
 	};
 }
 
-function authRequiredCard(authUrl: string): Record<string, unknown> {
+function authRequiredCard(authUrl: string): ChatCard {
 	return authCard(
 		'Нужно подключить Google',
 		'Подключите Google-аккаунт ревьюера и повторите запуск.',
@@ -1559,7 +1566,7 @@ function authRequiredCard(authUrl: string): Record<string, unknown> {
 	);
 }
 
-function welcomeCard(authUrl: string): Record<string, unknown> {
+function welcomeCard(authUrl: string): ChatCard {
 	return authCard(
 		'Performance Review Bot',
 		[
@@ -1575,11 +1582,7 @@ function welcomeCard(authUrl: string): Record<string, unknown> {
 	);
 }
 
-function authCard(
-	title: string,
-	text: string,
-	authUrl: string,
-): Record<string, unknown> {
+function authCard(title: string, text: string, authUrl: string): ChatCard {
 	return {
 		header: {
 			title,

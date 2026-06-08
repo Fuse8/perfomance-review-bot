@@ -32,4 +32,7 @@
 
 ## Result
 
-Заполнить после реализации.
+Добавлены алиасы Google Chat типов из `googleapis` для event/common/form inputs/message/card payloads.
+`src/chat.ts` переведён с ручных `Record<string, unknown>` на эти типы там, где это Google Chat response/card/form payloads.
+Calendar, Drive, Docs, Forms и People resource-типы сверены с `googleapis`; параметры и ответы переведены на официальные schema/params типы, где это совместимо с тестовыми фейками.
+Локальные narrow-типы сохранены только для несовпадающих runtime-полей, тестируемых resource-срезов и логирования.

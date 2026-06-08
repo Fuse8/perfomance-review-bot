@@ -1,4 +1,5 @@
 import { google } from 'googleapis';
+import type { people_v1 } from 'googleapis';
 import type { AppConfig } from './config.js';
 import { createOAuthClient } from './oauth.js';
 
@@ -8,26 +9,17 @@ export type DirectoryEmployee = {
 	resourceName: string;
 };
 
-type DirectoryPerson = {
-	resourceName?: string | null;
-	names?: Array<{
-		displayName?: string | null;
-	}> | null;
-	emailAddresses?: Array<{
-		value?: string | null;
-	}> | null;
-};
-
 type PeopleDirectoryResource = {
-	searchDirectoryPeople(params: {
-		query: string;
-		readMask: string;
-		sources: string[];
-		pageSize: number;
-	}): Promise<{
-		data: {
-			people?: DirectoryPerson[] | null;
-		};
+	searchDirectoryPeople(
+		params: people_v1.Params$Resource$People$Searchdirectorypeople &
+			Record<string, unknown> & {
+				query: string;
+				readMask: string;
+				sources: string[];
+				pageSize: number;
+			},
+	): Promise<{
+		data: people_v1.Schema$SearchDirectoryPeopleResponse;
 	}>;
 };
 
@@ -66,7 +58,9 @@ export async function searchDirectoryEmployeesInPeople(
 		.filter((employee): employee is DirectoryEmployee => employee !== null);
 }
 
-function mapDirectoryPerson(person: DirectoryPerson): DirectoryEmployee | null {
+function mapDirectoryPerson(
+	person: people_v1.Schema$Person,
+): DirectoryEmployee | null {
 	const fullName = person.names?.[0]?.displayName?.trim() ?? '';
 	const email = person.emailAddresses?.[0]?.value?.trim().toLowerCase() ?? '';
 

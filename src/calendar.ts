@@ -1,4 +1,5 @@
 import { google } from 'googleapis';
+import type { calendar_v3 } from 'googleapis';
 import type { AppConfig } from './config.js';
 import { createOAuthClient } from './oauth.js';
 
@@ -31,27 +32,13 @@ export type CalendarEventRequest = {
 
 type CalendarResource = {
 	events: {
-		insert(params: {
-			calendarId: 'primary';
-			requestBody: {
-				summary: string;
-				description: string;
-				start: {
-					dateTime: string;
-					timeZone: string;
-				};
-				end: {
-					dateTime: string;
-					timeZone: string;
-				};
-				attendees: Array<{ email: string }>;
-			};
-		}): Promise<{
-			data: {
-				id?: string | null;
-				summary?: string | null;
-				htmlLink?: string | null;
-			};
+		insert(
+			params: calendar_v3.Params$Resource$Events$Insert & {
+				calendarId: 'primary';
+				requestBody: calendar_v3.Schema$Event;
+			},
+		): Promise<{
+			data: calendar_v3.Schema$Event;
 		}>;
 	};
 };

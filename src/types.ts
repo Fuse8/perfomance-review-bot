@@ -1,3 +1,5 @@
+import type { chat_v1 } from 'googleapis';
+
 export type ReviewerToken = {
 	chatUserId: string;
 	googleUserEmail: string;
@@ -21,40 +23,28 @@ export type ReviewRequest = {
 	previousReviewUrl: string;
 };
 
-export type ChatEvent = {
-	type?: string;
-	dialogEventType?: string;
-	isDialogEvent?: boolean;
-	appCommandMetadata?: {
-		appCommandId?: number;
-		appCommandType?: string;
-	};
-	space?: {
-		name?: string;
-	};
-	user?: {
-		name?: string;
-		displayName?: string;
-		email?: string;
-	};
-	message?: {
-		slashCommand?: {
-			commandId?: string;
-		};
-		text?: string;
-	};
-	common?: {
-		invokedFunction?: string;
-		formInputs?: Record<string, ChatFormInput>;
-		parameters?: Record<string, string>;
-	};
-};
+export type ChatFormInput = chat_v1.Schema$Inputs;
+export type ChatFormInputs = NonNullable<
+	chat_v1.Schema$CommonEventObject['formInputs']
+>;
+export type ChatParameters = NonNullable<
+	chat_v1.Schema$CommonEventObject['parameters']
+>;
+export type ChatResponse = chat_v1.Schema$Message & Record<string, unknown>;
+export type ChatCard = chat_v1.Schema$GoogleAppsCardV1Card &
+	Record<string, unknown>;
+export type ChatSelectionItem = chat_v1.Schema$GoogleAppsCardV1SelectionItem;
 
-export type ChatFormInput = {
-	stringInputs?: {
-		value?: string[];
+export type ChatEvent = Omit<
+	chat_v1.Schema$DeprecatedEvent,
+	'common' | 'user'
+> & {
+	common?: {
+		formInputs?: ChatFormInputs;
+		invokedFunction?: string | null;
+		parameters?: ChatParameters;
 	};
-	dateInput?: {
-		msSinceEpoch?: string;
+	user?: chat_v1.Schema$User & {
+		email?: string;
 	};
 };
