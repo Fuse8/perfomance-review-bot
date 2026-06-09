@@ -11,8 +11,9 @@ email, но сейчас это не зафиксировано как отде�
 - Internal review form требует email респондента.
 - Client review form доступна всем по ссылке.
 - Client review form не требует Google аккаунт и email.
-- Описание клиентской Google Form использует шаблонные строки со значениями из
-  workflow.
+- Internal и client формы получают корректный видимый title после копирования
+  шаблона.
+- Описание Google Forms не меняется workflow.
 
 ## Current Context
 
@@ -29,14 +30,19 @@ forms.
 - Настроить client form: публичный доступ по ссылке без обязательного Google
   аккаунта/email.
 - Проверить, что настройка одной формы не меняет доступ другой.
-- Подставлять значения workflow в шаблонные строки описания client form.
+- Настроить корректный title для internal и client форм без изменения
+  description.
 
 ## Tests
 
 - Client review form получает публичный доступ по ссылке.
 - Client review form можно заполнить без Google аккаунта.
 - Internal review form не становится публичной и требует email.
-- Описание client form содержит подставленные значения после уточнения шаблонов.
+- Internal и client forms получают разные email collection settings.
+- Internal и client forms получают корректные русские Drive file names и
+  `info.title`.
+- При отключенной client form client template, settings, permissions и title не
+  обновляются.
 
 ## Risks
 
@@ -46,4 +52,24 @@ forms.
 
 ## Result
 
-Заполнить после реализации.
+Готово.
+
+Internal form теперь публикуется, получает `emailCollectionType: VERIFIED` через
+Forms API и доступ `domain`/`reader`/`published` только для доменов
+`employeeEmailDomains`.
+
+Client form теперь публикуется, получает `emailCollectionType: DO_NOT_COLLECT`
+через Forms API и публичный доступ по ссылке через Drive permission
+`anyone`/`reader`/`published`.
+
+Для обеих форм Drive file name и видимый Google Form `info.title` задаются в
+русском формате:
+
+- `{fullName} // Отзыв Performance review // {YYYY-MM}`
+- `{fullName} // Отзыв Performance review от клиента // {YYYY-MM}`
+
+`description` форм не меняется и template strings для description не
+подставляются.
+
+Проверено: `pnpm format`, `pnpm eslint:fix`, `pnpm type-check`,
+`pnpm test:quiet`.

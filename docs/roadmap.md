@@ -14,7 +14,6 @@ MVP-сценарий реализован: `/review` запускает workflow
 | -------- | -------------- | ---------------------------------------------------------------------------------------------- |
 | P1       | Auth / Storage | [Auth storage lifecycle](tasks/auth-storage-lifecycle.md)                                      |
 | P1       | Settings       | [Reviewer settings command](tasks/reviewer-settings-command.md)                                |
-| P1       | Forms          | [Separate internal and client form access](tasks/client-form-public-access-template-values.md) |
 | P1       | Forms          | [Forms response spreadsheets](tasks/forms-response-spreadsheets.md)                            |
 | P2       | Chat UX        | [Chat output format](tasks/chat-output-format.md)                                              |
 | P2       | Calendar       | [Business days reminders](tasks/business-days-reminders.md)                                    |
@@ -31,6 +30,7 @@ MVP-сценарий реализован: `/review` запускает workflow
 | 2026-06-08 | Tooling | [ESLint, Prettier, EditorConfig, Tsconfig](archive/2026-06-08-tooling-eslint-prettier-tsconfig.md)   |
 | 2026-06-08 | UX      | [Form validation UX](archive/2026-06-08-form-validation-ux.md)                                       |
 | 2026-06-09 | Forms   | [Feedback form templates shared folder](archive/2026-06-09-feedback-form-templates-shared-folder.md) |
+| 2026-06-09 | Forms   | [Separate internal and client form access](archive/2026-06-09-client-form-public-access-template-values.md) |
 
 ## Правила обновления
 

@@ -100,6 +100,11 @@ type DrivePermissionRequestBody =
 			role: 'reader';
 			domain: NonNullable<drive_v3.Schema$Permission['domain']>;
 			view: 'published';
+	  }
+	| {
+			type: 'anyone';
+			role: 'reader';
+			view: 'published';
 	  };
 
 type DrivePermissionsResource = {
@@ -130,10 +135,40 @@ type FormsPublishResource = {
 	): Promise<unknown>;
 };
 
+type FormsSettingsResource = {
+	batchUpdate(
+		params: forms_v1.Params$Resource$Forms$Batchupdate & {
+			formId: string;
+			requestBody: forms_v1.Schema$BatchUpdateFormRequest & {
+				requests: Array<
+					| {
+							updateSettings: {
+								settings: {
+									emailCollectionType: 'VERIFIED' | 'DO_NOT_COLLECT';
+								};
+								updateMask: 'emailCollectionType';
+							};
+					  }
+					| {
+							updateFormInfo: {
+								info: {
+									title: string;
+								};
+								updateMask: 'title';
+							};
+					  }
+				>;
+			};
+		},
+	): Promise<unknown>;
+};
+
+type FormsResource = FormsPublishResource & FormsSettingsResource;
+
 type DriveResource = {
 	files: DriveFilesResource;
 	permissions?: DrivePermissionsResource;
-	forms?: FormsPublishResource;
+	forms?: FormsResource;
 	documents?: {
 		batchUpdate(
 			params: docs_v1.Params$Resource$Documents$Batchupdate & {
@@ -395,9 +430,12 @@ export async function createReviewFolderInDrive(
 			copyFormFromTemplate(
 				drive,
 				request.internalReviewFormTemplateId,
-				`${request.fullName} // Internal Feedback Form // ${request.reviewDate.slice(0, 7)}`,
+				buildInternalReviewFormTitle(request.fullName, request.reviewDate),
 				folder,
-				{ responderDomains: request.internalFormResponderDomains },
+				{
+					accessMode: 'internal',
+					responderDomains: request.internalFormResponderDomains,
+				},
 			),
 	);
 
@@ -414,8 +452,9 @@ export async function createReviewFolderInDrive(
 						copyFormFromTemplate(
 							drive,
 							request.clientReviewFormTemplateId,
-							`${request.fullName} // Client Feedback Form // ${request.reviewDate.slice(0, 7)}`,
+							buildClientReviewFormTitle(request.fullName, request.reviewDate),
 							folder,
+							{ accessMode: 'client' },
 						),
 				);
 			})()
@@ -573,6 +612,7 @@ async function copyReportFromTemplate(
 }
 
 type CopyFormFromTemplateOptions = {
+	accessMode: 'internal' | 'client';
 	responderDomains?: string[];
 };
 
@@ -605,9 +645,19 @@ async function copyFormFromTemplate(
 
 	if (drive.forms) {
 		await publishCopiedGoogleForm(drive.forms, copiedForm.id);
+		await setGoogleFormTitle(drive.forms, copiedForm.id, copiedForm.name);
+		await setGoogleFormEmailCollection(
+			drive.forms,
+			copiedForm.id,
+			options?.accessMode === 'client' ? 'DO_NOT_COLLECT' : 'VERIFIED',
+		);
 	}
 
-	if (options?.responderDomains?.length) {
+	if (options?.accessMode === 'client') {
+		await grantPublicFormResponderAccess(drive, copiedForm.id);
+	}
+
+	if (options?.accessMode === 'internal' && options.responderDomains?.length) {
 		await grantCompanyFormResponderAccess(
 			drive,
 			copiedForm.id,
@@ -618,13 +668,32 @@ async function copyFormFromTemplate(
 	return copiedForm;
 }
 
-export function createFormsPublishClient(
-	auth: OAuth2Client,
-): FormsPublishResource {
+function buildInternalReviewFormTitle(
+	fullName: string,
+	reviewDate: string,
+): string {
+	return `${fullName} // Отзыв Performance review // ${reviewDate.slice(0, 7)}`;
+}
+
+function buildClientReviewFormTitle(
+	fullName: string,
+	reviewDate: string,
+): string {
+	return `${fullName} // Отзыв Performance review от клиента // ${reviewDate.slice(0, 7)}`;
+}
+
+export function createFormsPublishClient(auth: OAuth2Client): FormsResource {
 	return {
 		async setPublishSettings(params) {
 			await auth.request({
 				url: `https://forms.googleapis.com/v1/forms/${encodeURIComponent(params.formId)}:setPublishSettings`,
+				method: 'POST',
+				data: params.requestBody,
+			});
+		},
+		async batchUpdate(params) {
+			await auth.request({
+				url: `https://forms.googleapis.com/v1/forms/${encodeURIComponent(params.formId)}:batchUpdate`,
 				method: 'POST',
 				data: params.requestBody,
 			});
@@ -666,6 +735,28 @@ export async function grantCompanyFormResponderAccess(
 	}
 }
 
+async function grantPublicFormResponderAccess(
+	drive: DriveResource,
+	formId: string,
+): Promise<void> {
+	await withDriveStep(
+		`Публичный доступ респондентов client form по ссылке`,
+		async () => {
+			await drive.permissions?.create({
+				fileId: formId,
+				requestBody: {
+					type: 'anyone',
+					role: 'reader',
+					view: 'published',
+				},
+				fields: 'id',
+				supportsAllDrives: true,
+				sendNotificationEmail: false,
+			});
+		},
+	);
+}
+
 export async function publishCopiedGoogleForm(
 	forms: FormsPublishResource,
 	formId: string,
@@ -683,6 +774,57 @@ export async function publishCopiedGoogleForm(
 			},
 		});
 	});
+}
+
+async function setGoogleFormTitle(
+	forms: FormsSettingsResource,
+	formId: string,
+	title: string,
+): Promise<void> {
+	await withDriveStep(`Настройка title Google Form ${formId}`, async () => {
+		await forms.batchUpdate({
+			formId,
+			requestBody: {
+				requests: [
+					{
+						updateFormInfo: {
+							info: {
+								title,
+							},
+							updateMask: 'title',
+						},
+					},
+				],
+			},
+		});
+	});
+}
+
+async function setGoogleFormEmailCollection(
+	forms: FormsSettingsResource,
+	formId: string,
+	emailCollectionType: 'VERIFIED' | 'DO_NOT_COLLECT',
+): Promise<void> {
+	await withDriveStep(
+		`Настройка сбора email Google Form ${formId}`,
+		async () => {
+			await forms.batchUpdate({
+				formId,
+				requestBody: {
+					requests: [
+						{
+							updateSettings: {
+								settings: {
+									emailCollectionType,
+								},
+								updateMask: 'emailCollectionType',
+							},
+						},
+					],
+				},
+			});
+		},
+	);
 }
 
 async function grantEmployeeWriterAccess(

@@ -223,9 +223,56 @@ test('createReviewFolderInDrive creates review month folder inside matched emplo
 		},
 	};
 	const publishedFormIds: string[] = [];
+	const formEmailSettings: Array<{
+		formId: string;
+		emailCollectionType?: string | null;
+		updateMask?: string | null;
+	}> = [];
+	const formTitles: Array<{
+		formId: string;
+		title?: string | null;
+		updateMask?: string | null;
+		description?: string | null;
+	}> = [];
 	const forms = {
 		async setPublishSettings(params: { formId: string }) {
 			publishedFormIds.push(params.formId);
+			return { data: {} };
+		},
+		async batchUpdate(params: {
+			formId: string;
+			requestBody?: {
+				requests?: Array<{
+					updateSettings?: {
+						settings?: { emailCollectionType?: string | null };
+						updateMask?: string | null;
+					};
+					updateFormInfo?: {
+						info?: { title?: string | null; description?: string | null };
+						updateMask?: string | null;
+					};
+				}>;
+			};
+		}) {
+			for (const request of params.requestBody?.requests ?? []) {
+				if (request.updateSettings) {
+					formEmailSettings.push({
+						formId: params.formId,
+						emailCollectionType:
+							request.updateSettings.settings?.emailCollectionType,
+						updateMask: request.updateSettings.updateMask,
+					});
+				}
+
+				if (request.updateFormInfo) {
+					formTitles.push({
+						formId: params.formId,
+						title: request.updateFormInfo.info?.title,
+						updateMask: request.updateFormInfo.updateMask,
+						description: request.updateFormInfo.info?.description,
+					});
+				}
+			}
 			return { data: {} };
 		},
 	};
@@ -271,12 +318,12 @@ test('createReviewFolderInDrive creates review month folder inside matched emplo
 		},
 		{
 			fileId: 'internal-form-template-id',
-			name: 'Ivan Petrov // Internal Feedback Form // 2026-06',
+			name: 'Ivan Petrov // Отзыв Performance review // 2026-06',
 			parents: ['month-folder-id'],
 		},
 		{
 			fileId: 'client-form-template-id',
-			name: 'Ivan Petrov // Client Feedback Form // 2026-06',
+			name: 'Ivan Petrov // Отзыв Performance review от клиента // 2026-06',
 			parents: ['month-folder-id'],
 		},
 	]);
@@ -321,8 +368,42 @@ test('createReviewFolderInDrive creates review month folder inside matched emplo
 			domain: 'byteminds.co.uk',
 			view: 'published',
 		},
+		{
+			fileId: 'client-form-id',
+			emailAddress: undefined,
+			type: 'anyone',
+			role: 'reader',
+			domain: undefined,
+			view: 'published',
+		},
 	]);
 	assert.deepEqual(publishedFormIds, ['internal-form-id', 'client-form-id']);
+	assert.deepEqual(formEmailSettings, [
+		{
+			formId: 'internal-form-id',
+			emailCollectionType: 'VERIFIED',
+			updateMask: 'emailCollectionType',
+		},
+		{
+			formId: 'client-form-id',
+			emailCollectionType: 'DO_NOT_COLLECT',
+			updateMask: 'emailCollectionType',
+		},
+	]);
+	assert.deepEqual(formTitles, [
+		{
+			formId: 'internal-form-id',
+			title: 'Ivan Petrov // Отзыв Performance review // 2026-06',
+			updateMask: 'title',
+			description: undefined,
+		},
+		{
+			formId: 'client-form-id',
+			title: 'Ivan Petrov // Отзыв Performance review от клиента // 2026-06',
+			updateMask: 'title',
+			description: undefined,
+		},
+	]);
 });
 
 test('grantCompanyFormResponderAccess adds published reader for each domain', async () => {
@@ -399,6 +480,12 @@ test('createReviewFolderInDrive creates only internal form when client form is n
 		name?: string;
 		parents?: string[];
 	}> = [];
+	const formEmailSettings: Array<{
+		formId: string;
+		emailCollectionType?: string | null;
+	}> = [];
+	const formTitles: Array<{ formId: string; title?: string | null }> = [];
+	const permissions: Array<{ fileId: string; type?: string }> = [];
 	const files = {
 		async get() {
 			return {
@@ -458,9 +545,54 @@ test('createReviewFolderInDrive creates only internal form when client form is n
 			return { data: {} };
 		},
 	};
+	const forms = {
+		async setPublishSettings() {
+			return { data: {} };
+		},
+		async batchUpdate(params: {
+			formId: string;
+			requestBody?: {
+				requests?: Array<{
+					updateSettings?: {
+						settings?: { emailCollectionType?: string | null };
+					};
+					updateFormInfo?: {
+						info?: { title?: string | null };
+					};
+				}>;
+			};
+		}) {
+			for (const request of params.requestBody?.requests ?? []) {
+				if (request.updateSettings) {
+					formEmailSettings.push({
+						formId: params.formId,
+						emailCollectionType:
+							request.updateSettings.settings?.emailCollectionType,
+					});
+				}
+
+				if (request.updateFormInfo) {
+					formTitles.push({
+						formId: params.formId,
+						title: request.updateFormInfo.info?.title,
+					});
+				}
+			}
+			return { data: {} };
+		},
+	};
+	const permissionsResource = {
+		async create(params: { fileId: string; requestBody?: { type?: string } }) {
+			permissions.push({
+				fileId: params.fileId,
+				type: params.requestBody?.type,
+			});
+			return { data: {} };
+		},
+	};
 
 	const folder = await createReviewFolderInDrive(
-		{ files, documents },
+		{ files, permissions: permissionsResource, documents, forms },
 		{
 			rootFolderId: 'root-folder-id',
 			reviewReportTemplateId: 'report-template-id',
@@ -484,6 +616,25 @@ test('createReviewFolderInDrive creates only internal form when client form is n
 	assert.deepEqual(
 		copiedFiles.map((file) => file.fileId),
 		['report-template-id', 'internal-form-template-id'],
+	);
+	assert.deepEqual(formEmailSettings, [
+		{
+			formId: 'internal-form-id',
+			emailCollectionType: 'VERIFIED',
+		},
+	]);
+	assert.deepEqual(formTitles, [
+		{
+			formId: 'internal-form-id',
+			title: 'Ivan Petrov // Отзыв Performance review // 2026-06',
+		},
+	]);
+	assert.equal(
+		permissions.some(
+			(permission) =>
+				permission.fileId === 'client-form-id' || permission.type === 'anyone',
+		),
+		false,
 	);
 });
 
