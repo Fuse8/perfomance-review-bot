@@ -2,6 +2,31 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { loadConfig } from './config.js';
 
+test('loadConfig uses built-in feedback form template ids', () => {
+	const previousEnv = { ...process.env };
+
+	try {
+		process.env.APP_BASE_URL = 'https://example.test';
+		process.env.GOOGLE_CLIENT_ID = 'client-id';
+		process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
+		process.env.GOOGLE_REDIRECT_URI =
+			'https://example.test/auth/google/callback';
+		process.env.REVIEWS_ROOT_FOLDER_ID = 'root-folder-id';
+		process.env.DATABASE_URL = 'postgresql://user:pass@host/db';
+		delete process.env.INTERNAL_REVIEW_FORM_TEMPLATE_ID;
+		delete process.env.CLIENT_REVIEW_FORM_TEMPLATE_ID;
+
+		const config = loadConfig();
+
+		assert.equal(typeof config.internalReviewFormTemplateId, 'string');
+		assert.notEqual(config.internalReviewFormTemplateId, '');
+		assert.equal(typeof config.clientReviewFormTemplateId, 'string');
+		assert.notEqual(config.clientReviewFormTemplateId, '');
+	} finally {
+		process.env = previousEnv;
+	}
+});
+
 test('loadConfig allows missing EMPLOYEE_EMAIL_DOMAIN so the server can start', () => {
 	const previousEnv = { ...process.env };
 

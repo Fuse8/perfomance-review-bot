@@ -1475,40 +1475,6 @@ test('/review submit includes only internal form link when client form is not ne
 	assert.doesNotMatch(messageText, /📝 Форма обратной связи \(клиенту\)/);
 });
 
-test('/review submit asks to configure internal form template when it is missing', async () => {
-	const handleChatEvent = createHandler({
-		async createReviewFolder() {
-			throw new Error('should not create folder');
-		},
-	});
-
-	const response = await handleChatEvent(
-		{ ...config, internalReviewFormTemplateId: '' },
-		storage,
-		reviewSubmitEvent(),
-	);
-	const text = getResponseText(response);
-
-	assert.match(text, /Настройте INTERNAL_REVIEW_FORM_TEMPLATE_ID/);
-});
-
-test('/review submit asks to configure client form template when checkbox is selected', async () => {
-	const handleChatEvent = createHandler({
-		async createReviewFolder() {
-			throw new Error('should not create folder');
-		},
-	});
-
-	const response = await handleChatEvent(
-		{ ...config, clientReviewFormTemplateId: '' },
-		storage,
-		reviewSubmitEvent(),
-	);
-	const text = getResponseText(response);
-
-	assert.match(text, /Настройте CLIENT_REVIEW_FORM_TEMPLATE_ID/);
-});
-
 test('/review submit asks to configure report template when it is missing', async () => {
 	const handleChatEvent = createHandler({
 		async createReviewFolder() {

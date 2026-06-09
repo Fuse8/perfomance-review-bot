@@ -596,7 +596,7 @@ async function handleReviewSubmit(
 		return actionResponseText(parsed.error);
 	}
 
-	const configError = validateReviewConfig(config, parsed.value);
+	const configError = validateReviewConfig(config);
 	if (configError) {
 		logChatEvent('submit.validationFailed', { error: configError });
 		return respondReviewMessage(
@@ -841,18 +841,9 @@ async function runReviewWorkflow(
 	};
 }
 
-function validateReviewConfig(
-	config: AppConfig,
-	request: ReviewRequest,
-): string | null {
+function validateReviewConfig(config: AppConfig): string | null {
 	if (!config.reviewReportTemplateId) {
 		return 'Настройте REVIEW_REPORT_TEMPLATE_ID в .env или .env.';
-	}
-	if (!config.internalReviewFormTemplateId) {
-		return 'Настройте INTERNAL_REVIEW_FORM_TEMPLATE_ID в .env или .env.';
-	}
-	if (request.needsClientForm && !config.clientReviewFormTemplateId) {
-		return 'Настройте CLIENT_REVIEW_FORM_TEMPLATE_ID в .env или .env.';
 	}
 	return null;
 }

@@ -10,30 +10,30 @@ MVP-сценарий реализован: `/review` запускает workflow
 
 ## Planned improvements
 
-| Priority | Status  | Area           | Task                                                                                           |
-| -------- | ------- | -------------- | ---------------------------------------------------------------------------------------------- |
-| P1       | Planned | Auth / Storage | [Auth storage lifecycle](tasks/auth-storage-lifecycle.md)                                      |
-| P1       | Planned | Settings       | [Reviewer settings command](tasks/reviewer-settings-command.md)                                |
-| P1       | Planned | Forms          | [Feedback form templates shared folder](tasks/feedback-form-templates-shared-folder.md)        |
-| P1       | Planned | Forms          | [Separate internal and client form access](tasks/client-form-public-access-template-values.md) |
-| P1       | Planned | Forms          | [Forms response spreadsheets](tasks/forms-response-spreadsheets.md)                            |
-| P2       | Planned | Chat UX        | [Chat output format](tasks/chat-output-format.md)                                              |
-| P2       | Planned | Calendar       | [Business days reminders](tasks/business-days-reminders.md)                                    |
-| P2       | Planned | Drive          | [Review report template reviewer name](tasks/review-report-template-reviewer-name.md)          |
-| P2       | Planned | Drive          | [Previous review header prefill](tasks/previous-review-header-prefill.md)                      |
-| P2       | Planned | TypeScript     | [Google API types](tasks/google-types.md)                                                      |
-| P2       | Planned | Data           | [Data retention](tasks/data-retention.md)                                                      |
+| Priority | Area           | Task                                                                                           |
+| -------- | -------------- | ---------------------------------------------------------------------------------------------- |
+| P1       | Auth / Storage | [Auth storage lifecycle](tasks/auth-storage-lifecycle.md)                                      |
+| P1       | Settings       | [Reviewer settings command](tasks/reviewer-settings-command.md)                                |
+| P1       | Forms          | [Separate internal and client form access](tasks/client-form-public-access-template-values.md) |
+| P1       | Forms          | [Forms response spreadsheets](tasks/forms-response-spreadsheets.md)                            |
+| P2       | Chat UX        | [Chat output format](tasks/chat-output-format.md)                                              |
+| P2       | Calendar       | [Business days reminders](tasks/business-days-reminders.md)                                    |
+| P2       | Drive          | [Review report template reviewer name](tasks/review-report-template-reviewer-name.md)          |
+| P2       | Drive          | [Previous review header prefill](tasks/previous-review-header-prefill.md)                      |
+| P2       | TypeScript     | [Google API types](tasks/google-types.md)                                                      |
+| P2       | Data           | [Data retention](tasks/data-retention.md)                                                      |
 
 ## Completed
 
-| Date       | Area    | Task                                                                                               |
-| ---------- | ------- | -------------------------------------------------------------------------------------------------- |
-| 2026-06-08 | Docs    | [Documentation knowledge base](archive/2026-06-08-documentation-knowledge-base.md)                 |
-| 2026-06-08 | Tooling | [ESLint, Prettier, EditorConfig, Tsconfig](archive/2026-06-08-tooling-eslint-prettier-tsconfig.md) |
-| 2026-06-08 | UX      | [Form validation UX](archive/2026-06-08-form-validation-ux.md)                                     |
+| Date       | Area    | Task                                                                                                 |
+| ---------- | ------- | ---------------------------------------------------------------------------------------------------- |
+| 2026-06-08 | Docs    | [Documentation knowledge base](archive/2026-06-08-documentation-knowledge-base.md)                   |
+| 2026-06-08 | Tooling | [ESLint, Prettier, EditorConfig, Tsconfig](archive/2026-06-08-tooling-eslint-prettier-tsconfig.md)   |
+| 2026-06-08 | UX      | [Form validation UX](archive/2026-06-08-form-validation-ux.md)                                       |
+| 2026-06-09 | Forms   | [Feedback form templates shared folder](archive/2026-06-09-feedback-form-templates-shared-folder.md) |
 
 ## Правила обновления
 
-- Обновлять здесь только статус, приоритет и ссылку на задачу.
+- Обновлять здесь только приоритет и ссылку на задачу.
 - Не хранить длинные планы в roadmap.
 - После завершения задачи заполнить `Result` и перенести task-файл в `archive/`.

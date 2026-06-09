@@ -39,9 +39,8 @@ export function loadConfig(): AppConfig {
 			process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS || undefined,
 		reviewReportTemplateId: process.env.REVIEW_REPORT_TEMPLATE_ID ?? '',
 		internalReviewFormTemplateId:
-			process.env.INTERNAL_REVIEW_FORM_TEMPLATE_ID ?? '',
-		clientReviewFormTemplateId:
-			process.env.CLIENT_REVIEW_FORM_TEMPLATE_ID ?? '',
+			'1lgdN4oL5oqkaLXYJbC0I6nVhsKH6rHNPfoRVU8cp_6w',
+		clientReviewFormTemplateId: '1y034hq830IB1DBrulh9tKNRegGaJEnlI0nkNzl7B3nE',
 		employeeEmailDomains: normalizeOptionalDomains(
 			process.env.EMPLOYEE_EMAIL_DOMAINS,
 		),

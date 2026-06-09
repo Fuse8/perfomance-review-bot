@@ -12,19 +12,21 @@
 - Client form создается из template
   `1y034hq830IB1DBrulh9tKNRegGaJEnlI0nkNzl7B3nE`.
 - Оба шаблона лежат в общей папке с доступом, достаточным для копирования.
-- `.env.example` и docs содержат актуальные template IDs.
+- `src/config.ts` и docs содержат актуальные template IDs.
 
 ## Current Context
 
-В проекте уже есть `INTERNAL_REVIEW_FORM_TEMPLATE_ID` и
-`CLIENT_REVIEW_FORM_TEMPLATE_ID`. Перед кодовыми изменениями нужно вручную
+Form template IDs должны быть частью config, так как это не секреты и
+не per-environment настройки. Перед кодовыми изменениями нужно вручную
 проверить доступы к исходным Google Forms.
 
 ## Plan
 
 - Перенести оба Google Forms template в общую папку.
 - Проверить, что аккаунт ревьюера может копировать оба шаблона.
-- Обновить `.env.example` и документацию с финальными IDs.
+- Убрать form template IDs из env.
+- Добавить form template IDs в config.
+- Обновить документацию с финальными IDs.
 - Проверить, что workflow использует правильный template для каждой формы.
 
 ## Tests
@@ -41,4 +43,8 @@
 
 ## Result
 
-Заполнить после реализации.
+Form template IDs перенесены из env в `src/config.ts`.
+`.env.example` больше не содержит `INTERNAL_REVIEW_FORM_TEMPLATE_ID` и
+`CLIENT_REVIEW_FORM_TEMPLATE_ID`. Документация фиксирует встроенные template IDs
+и требование хранить оба Google Forms template в общей папке с доступом для
+копирования.
