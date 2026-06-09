@@ -66,9 +66,6 @@ In Google Chat API settings:
 - Info slash command:
   - Name: `/info`
   - Command ID: `2`
-- Authentication debugging slash command:
-  - Name: `/check-auth`
-  - Command ID: `3`
 
 ## Documentation
 

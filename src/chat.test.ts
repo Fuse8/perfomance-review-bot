@@ -113,32 +113,11 @@ test('/info returns bot version and review command help', async () => {
 	});
 
 	const text = getResponseText(response);
-	assert.match(text, /^\/info/m);
-	assert.match(text, /Version: 0\.1\.1/);
-	assert.match(text, /Команды:/);
-	assert.match(text, /\/review/);
-	assert.match(text, /opens a form|открывает форму/i);
-});
-
-test('/check-auth returns auth diagnostics report', async () => {
-	const handleChatEvent = createChatEventHandler({
-		async buildAuthCheckReport() {
-			return 'Auth check (/check-auth)\n\n- Chat token probe: OK';
-		},
-	});
-
-	const response = await handleChatEvent(config, storage, {
-		user: {
-			name: 'users/123',
-		},
-		appCommandMetadata: {
-			appCommandId: 3,
-		},
-	});
-
-	const text = getResponseText(response);
-	assert.match(text, /Auth check/);
-	assert.match(text, /Chat token probe: OK/);
+	assert.match(
+		text,
+		/^🚀 Performance Review Assistant\n\nВерсия: v\d+\.\d+\.\d+\n\n────────────────────────────────────\n\n📋 Доступные команды\n\n• \/review {4}Запустить Performance Review\n• \/info {9}Показать информацию о боте\n\n🕒 Важно\n\nВсе даты и время ревью, встреч и задач указываются\nпо челябинскому времени \(UTC\+5\)\.$/,
+	);
+	assert.doesNotMatch(text, /\/check-auth/);
 });
 
 test('/info works for standalone slash command payload', async () => {
@@ -165,49 +144,34 @@ test('/info works for standalone slash command payload', async () => {
 	} as never);
 
 	const text = getResponseText(response);
-	assert.match(text, /^\/info/m);
-	assert.match(text, /Version: 0\.1\.1/);
+	assert.match(text, /^🚀 Performance Review Assistant/m);
+	assert.match(text, /Версия: v\d+\.\d+\.\d+/);
+	assert.match(text, /📋 Доступные команды/);
 	assert.match(text, /\/review/);
+	assert.match(text, /\/info/);
+	assert.match(text, /челябинскому времени \(UTC\+5\)/i);
+	assert.doesNotMatch(text, /\/check-auth/);
 });
 
-test('/check-auth works for standalone slash command payload', async () => {
-	const handleChatEvent = createChatEventHandler({
-		async buildAuthCheckReport() {
-			return 'Auth check (/check-auth)\n\n- Chat token probe: OK';
-		},
-	});
-
-	const response = await handleChatEvent(config, storage, {
-		type: 'MESSAGE',
-		user: {
-			name: 'users/123',
-		},
-		space: {
-			name: 'spaces/STANDALONE',
-		},
-		message: {
-			text: '/check-auth',
-			slashCommand: {
-				commandId: '3',
-			},
-		},
-		appCommandMetadata: {
-			appCommandId: 3,
-			appCommandType: 'SLASH_COMMAND',
-		},
-	} as never);
-
-	const text = getResponseText(response);
-	assert.match(text, /Auth check/);
-	assert.match(text, /Chat token probe: OK/);
-});
-
-test('install event returns welcome card with commands and auth button', async () => {
+test('install event returns info and sends auth link as a second message', async () => {
 	let authChatUserId = '';
+	let sentSpaceName = '';
+	let sentText = '';
+	let sendFinished = false;
+	let releaseSend: () => void = () => {};
+	const sendBlocker = new Promise<void>((resolve) => {
+		releaseSend = resolve;
+	});
 	const handleChatEvent = createChatEventHandler({
 		async buildAuthUrl(_config, _storage, chatUserId) {
 			authChatUserId = chatUserId;
 			return 'https://example.test/auth/start';
+		},
+		async sendChatMessage(_config, spaceName, text) {
+			sentSpaceName = spaceName;
+			sentText = text;
+			await sendBlocker;
+			sendFinished = true;
 		},
 	});
 
@@ -221,12 +185,16 @@ test('install event returns welcome card with commands and auth button', async (
 		},
 	});
 
-	const card = getActionResponseCard(response);
 	assert.equal(authChatUserId, 'users/123');
-	assert.equal(card.header?.title, 'Performance Review Bot');
-	assert.match(getCardText(card), /\/info/);
-	assert.match(getCardText(card), /\/review/);
-	assert.match(getCardButtonText(card), /Подключить Google/);
+	assert.match(getResponseText(response), /^🚀 Performance Review Assistant/m);
+	assert.match(getResponseText(response), /\/review/);
+	assert.equal(sentSpaceName, 'spaces/AAA');
+	assert.match(sentText, /Подключите Google-аккаунт ревьюера/);
+	assert.match(sentText, /https:\/\/example\.test\/auth\/start/);
+	assert.equal(sendFinished, false);
+
+	releaseSend();
+	await Promise.resolve();
 });
 
 test('install event without user returns clear error and does not build auth url', async () => {
@@ -1871,19 +1839,6 @@ function getFirstCard(response: Record<string, unknown>): {
 		};
 	};
 	return actionResponse?.dialogAction?.dialog?.body ?? {};
-}
-
-function getActionResponseCard(response: Record<string, unknown>): {
-	header?: { title?: string };
-	sections?: Array<{ widgets?: unknown[] }>;
-} {
-	const cards = response.cardsV2 as Array<{
-		card?: {
-			header?: { title?: string };
-			sections?: Array<{ widgets?: unknown[] }>;
-		};
-	}>;
-	return cards?.[0]?.card ?? {};
 }
 
 function getCardText(card: {

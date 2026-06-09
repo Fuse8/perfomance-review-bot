@@ -24,7 +24,7 @@ MVP-сценарий реализован: `/review` запускает workflow
 | ---------- | ------- | -------------------------------------------------------------------------------------------------- |
 | 2026-06-08 | Docs    | [Documentation knowledge base](archive/2026-06-08-documentation-knowledge-base.md)                 |
 | 2026-06-08 | Tooling | [ESLint, Prettier, EditorConfig, Tsconfig](archive/2026-06-08-tooling-eslint-prettier-tsconfig.md) |
-| 2026-06-08 | UX      | [Form validation UX](archive/2026-06-08-form-validation-ux.md)                                    |
+| 2026-06-08 | UX      | [Form validation UX](archive/2026-06-08-form-validation-ux.md)                                     |
 
 ## Правила обновления
 

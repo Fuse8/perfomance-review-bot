@@ -12,7 +12,6 @@ import {
 	findPreviousReviewReport,
 	type CreatedFolder,
 } from './drive.js';
-import { buildAuthCheckReport } from './chat-auth-check.js';
 import { sendChatMessage } from './google-chat.js';
 import { formatAuthRequiredMessage, isOAuthAuthError } from './oauth-errors.js';
 import { buildAuthUrl } from './oauth.js';
@@ -35,7 +34,6 @@ const CHECK_EMPLOYEE_FOLDER_FUNCTION = 'checkEmployeeFolder';
 const ADDED_TO_SPACE_EVENT = 'ADDED_TO_SPACE';
 const REVIEW_COMMAND_ID = 1;
 const INFO_COMMAND_ID = 2;
-const CHECK_AUTH_COMMAND_ID = 3;
 const REVIEW_WORKFLOW_ACK_MESSAGE =
 	'Запустил подготовку PR. Результат пришлю сюда.';
 const BOT_VERSION = readBotVersion();
@@ -116,7 +114,6 @@ type ChatEventHandlerDeps = {
 	searchDirectoryEmployees: typeof searchDirectoryEmployees;
 	buildAuthUrl: typeof buildAuthUrl;
 	sendChatMessage: typeof sendChatMessage;
-	buildAuthCheckReport: typeof buildAuthCheckReport;
 };
 
 const defaultDeps: ChatEventHandlerDeps = {
@@ -128,7 +125,6 @@ const defaultDeps: ChatEventHandlerDeps = {
 	searchDirectoryEmployees,
 	buildAuthUrl,
 	sendChatMessage,
-	buildAuthCheckReport,
 };
 
 export function createChatEventHandler(
@@ -160,7 +156,13 @@ export function createChatEventHandler(
 
 		if (event.type === ADDED_TO_SPACE_EVENT) {
 			logChatEvent('route.addedToSpace');
-			return handleAddedToSpace(config, storage, chatUserId, resolvedDeps);
+			return handleAddedToSpace(
+				config,
+				storage,
+				chatUserId,
+				event,
+				resolvedDeps,
+			);
 		}
 
 		if (isEmployeeSuggestionsEvent(config, event, invokedFunction)) {
@@ -177,16 +179,6 @@ export function createChatEventHandler(
 		if (appCommandId === INFO_COMMAND_ID) {
 			logChatEvent('route.info');
 			return textResponse(buildInfoMessage());
-		}
-
-		if (appCommandId === CHECK_AUTH_COMMAND_ID) {
-			logChatEvent('route.checkAuth');
-			const report = await resolvedDeps.buildAuthCheckReport(
-				config,
-				storage,
-				chatUserId,
-			);
-			return textResponse(report);
 		}
 
 		if (!chatUserId) {
@@ -248,6 +240,7 @@ async function handleAddedToSpace(
 	config: AppConfig,
 	storage: TokenStorage,
 	chatUserId: string | undefined,
+	event: ChatEvent,
 	deps: ChatEventHandlerDeps,
 ): Promise<ChatResponse> {
 	if (!chatUserId) {
@@ -256,17 +249,61 @@ async function handleAddedToSpace(
 	}
 
 	const authUrl = await deps.buildAuthUrl(config, storage, chatUserId);
-	return actionResponseCard(welcomeCard(authUrl));
+	void sendInstallAuthLink(config, deps, event, authUrl);
+	return textResponse(buildInfoMessage());
+}
+
+async function sendInstallAuthLink(
+	config: AppConfig,
+	deps: ChatEventHandlerDeps,
+	event: ChatEvent,
+	authUrl: string,
+): Promise<void> {
+	const spaceName = resolveChatSpaceName(event);
+	if (!spaceName) {
+		logChatEvent('addedToSpace.sendAuthLink.skipped', {
+			reason: 'missing_space',
+		});
+		return;
+	}
+
+	try {
+		await deps.sendChatMessage(
+			config,
+			spaceName,
+			buildInstallAuthMessage(authUrl),
+		);
+		logChatEvent('addedToSpace.sendAuthLink.success', { spaceName });
+	} catch (error) {
+		const message = error instanceof Error ? error.message : 'Unknown error';
+		logChatEvent('addedToSpace.sendAuthLink.failed', { spaceName, message });
+	}
+}
+
+function buildInstallAuthMessage(authUrl: string): string {
+	return [
+		'Подключите Google-аккаунт ревьюера перед запуском /review:',
+		authUrl,
+	].join('\n');
 }
 
 function buildInfoMessage(): string {
 	return [
-		'/info',
+		'🚀 Performance Review Assistant',
 		'',
-		`Version: ${BOT_VERSION}`,
+		`Версия: v${BOT_VERSION}`,
 		'',
-		'Команды:',
-		'- /review — открывает форму и запускает workflow performance review',
+		'────────────────────────────────────',
+		'',
+		'📋 Доступные команды',
+		'',
+		'• /review    Запустить Performance Review',
+		'• /info         Показать информацию о боте',
+		'',
+		'🕒 Важно',
+		'',
+		'Все даты и время ревью, встреч и задач указываются',
+		'по челябинскому времени (UTC+5).',
 	].join('\n');
 }
 
@@ -1246,20 +1283,6 @@ function actionResponseText(text: string): ChatResponse {
 	};
 }
 
-function actionResponseCard(card: ChatCard): ChatResponse {
-	return {
-		actionResponse: {
-			type: 'NEW_MESSAGE',
-		},
-		cardsV2: [
-			{
-				cardId: 'auth-required',
-				card,
-			},
-		],
-	};
-}
-
 function employeeSuggestionsResponse(
 	suggestions: ChatSelectionItem[],
 ): ChatResponse {
@@ -1606,22 +1629,6 @@ function authRequiredCard(authUrl: string): ChatCard {
 	return authCard(
 		'Нужно подключить Google',
 		'Подключите Google-аккаунт ревьюера и повторите запуск.',
-		authUrl,
-	);
-}
-
-function welcomeCard(authUrl: string): ChatCard {
-	return authCard(
-		'Performance Review Bot',
-		[
-			'Бот помогает подготовить performance review.',
-			'',
-			'Команды:',
-			'/info — информация о боте',
-			'/review — запуск подготовки performance review',
-			'',
-			'Перед запуском /review подключите Google-аккаунт ревьюера.',
-		].join('<br>'),
 		authUrl,
 	);
 }
