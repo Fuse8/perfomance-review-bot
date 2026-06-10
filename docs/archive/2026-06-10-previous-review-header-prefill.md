@@ -40,4 +40,16 @@ Workflow уже ищет предыдущий review report и передает 
 
 ## Result
 
-Заполнить после реализации.
+Готово.
+
+Workflow сохраняет `previousReviewId` найденного прошлого отчета и передает его
+в создание нового report. Drive/Docs workflow читает предыдущий Google Docs
+через Docs API, извлекает `Должность`, `Работает с` и `Дата этого ревью` из
+шапки и подставляет их в новый report через placeholders `{{POSITION}}`,
+`{{WORKS_SINCE}}`, `{{PREVIOUS_REVIEW_DATE}}`.
+
+Если прошлого отчета нет, поле не найдено или чтение предыдущего документа
+падает, используется обычный `-`, а создание нового отчета продолжается.
+
+Проверено: `pnpm format`, `pnpm eslint:fix`, `pnpm type-check`,
+`pnpm test:quiet`.

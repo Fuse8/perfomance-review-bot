@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import {
 	createReviewFolderInDrive,
+	extractPreviousReviewHeader,
 	findEmployeeFolderInDrive,
 	findPreviousReviewReportInDrive,
 	formatDriveStepError,
@@ -30,6 +31,77 @@ test('formatDriveStepError includes the failing Drive step', () => {
 		),
 		'Проверка доступа к шаблону PR report (REVIEW_REPORT_TEMPLATE_ID): The user does not have sufficient permissions for this file.',
 	);
+});
+
+test('extractPreviousReviewHeader reads header values from table cells', () => {
+	const header = extractPreviousReviewHeader({
+		body: {
+			content: [
+				{
+					table: {
+						tableRows: [
+							{
+								tableCells: [
+									{
+										content: [paragraph('Должность')],
+									},
+									{
+										content: [paragraph('Senior Developer')],
+									},
+								],
+							},
+							{
+								tableCells: [
+									{
+										content: [paragraph('Работает с')],
+									},
+									{
+										content: [paragraph('2022-03-01')],
+									},
+								],
+							},
+							{
+								tableCells: [
+									{
+										content: [paragraph('Дата этого ревью')],
+									},
+									{
+										content: [paragraph('2026-05-20')],
+									},
+								],
+							},
+						],
+					},
+				},
+			],
+		},
+	});
+
+	assert.deepEqual(header, {
+		position: 'Senior Developer',
+		worksSince: '2022-03-01',
+		previousReviewDate: '2026-05-20',
+	});
+});
+
+test('extractPreviousReviewHeader uses dash for missing values', () => {
+	const header = extractPreviousReviewHeader({
+		body: {
+			content: [
+				{
+					paragraph: {
+						elements: [{ textRun: { content: 'Unexpected document' } }],
+					},
+				},
+			],
+		},
+	});
+
+	assert.deepEqual(header, {
+		position: '-',
+		worksSince: '-',
+		previousReviewDate: '-',
+	});
 });
 
 test('withDriveStep rethrows errors with step context', async () => {
@@ -110,6 +182,7 @@ test('createReviewFolderInDrive creates review month folder inside matched emplo
 	}> = [];
 	const replacedTexts: Array<{ containsText?: string; replaceText?: string }> =
 		[];
+	const fetchedDocumentIds: string[] = [];
 	const permissions: Array<{
 		fileId: string;
 		emailAddress?: string;
@@ -179,6 +252,41 @@ test('createReviewFolderInDrive creates review month folder inside matched emplo
 		},
 	};
 	const documents = {
+		async get(params: { documentId: string }) {
+			fetchedDocumentIds.push(params.documentId);
+			return {
+				data: {
+					body: {
+						content: [
+							{
+								table: {
+									tableRows: [
+										{
+											tableCells: [
+												{ content: [paragraph('Должность')] },
+												{ content: [paragraph('Senior Developer')] },
+											],
+										},
+										{
+											tableCells: [
+												{ content: [paragraph('Работает с')] },
+												{ content: [paragraph('2022-03-01')] },
+											],
+										},
+										{
+											tableCells: [
+												{ content: [paragraph('Дата этого ревью')] },
+												{ content: [paragraph('2026-05-20')] },
+											],
+										},
+									],
+								},
+							},
+						],
+					},
+				},
+			};
+		},
 		async batchUpdate(params: {
 			documentId: string;
 			requestBody?: {
@@ -291,6 +399,7 @@ test('createReviewFolderInDrive creates review month folder inside matched emplo
 			meetingTime: '14:30',
 			reviewMonth: '2026.06',
 			needsClientForm: true,
+			previousReviewId: 'previous-report-id',
 			previousReviewUrl: 'https://docs.google.com/document/previous-report',
 			internalFormResponderDomains: ['fuse8.online', 'byteminds.co.uk'],
 		},
@@ -310,6 +419,7 @@ test('createReviewFolderInDrive creates review month folder inside matched emplo
 		'https://docs.google.com/forms/client-form-id',
 	);
 	assert.deepEqual(createdParents, [['employee-folder-id']]);
+	assert.deepEqual(fetchedDocumentIds, ['previous-report-id']);
 	assert.deepEqual(copiedFiles, [
 		{
 			fileId: 'report-template-id',
@@ -341,6 +451,12 @@ test('createReviewFolderInDrive creates review month folder inside matched emplo
 		{
 			containsText: '{{PREVIOUS_REVIEW_URL}}',
 			replaceText: 'https://docs.google.com/document/previous-report',
+		},
+		{ containsText: '{{POSITION}}', replaceText: 'Senior Developer' },
+		{ containsText: '{{WORKS_SINCE}}', replaceText: '2022-03-01' },
+		{
+			containsText: '{{PREVIOUS_REVIEW_DATE}}',
+			replaceText: '2026-05-20',
 		},
 	]);
 	assert.deepEqual(permissions, [
@@ -833,6 +949,14 @@ test('findPreviousReviewReportInDrive returns null when no previous report exist
 
 	assert.equal(previous, null);
 });
+
+function paragraph(text: string) {
+	return {
+		paragraph: {
+			elements: [{ textRun: { content: text } }],
+		},
+	};
+}
 
 function createFilesStub() {
 	return {

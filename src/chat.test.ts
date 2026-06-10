@@ -891,6 +891,10 @@ test('/review employee check opens review form when Drive folder exists', async 
 									key: 'previousReviewUrl',
 									value: 'https://docs.google.com/document/previous-report-id',
 								},
+								{
+									key: 'previousReviewId',
+									value: 'previous-report-id',
+								},
 							],
 						},
 					},
@@ -974,6 +978,10 @@ test('/review employee check shows missing previous review status when Drive fol
 								},
 								{
 									key: 'previousReviewUrl',
+									value: '',
+								},
+								{
+									key: 'previousReviewId',
 									value: '',
 								},
 							],
@@ -1086,6 +1094,7 @@ test('/review submit creates a test folder and returns its link', async () => {
 				meetingTime: '14:30',
 				reviewMonth: '2026.06',
 				needsClientForm: true,
+				previousReviewId: 'previous-report-id',
 				previousReviewUrl:
 					'https://docs.google.com/document/previous-report-id',
 			});
@@ -1499,6 +1508,7 @@ test('/review submit creates review without previous review when previousReviewU
 			throw new Error('should not look up previous review on submit');
 		},
 		async createReviewFolder(_config, _refreshToken, request) {
+			assert.equal(request.previousReviewId, '');
 			assert.equal(request.previousReviewUrl, '');
 			return {
 				id: 'folder-id',
@@ -1712,6 +1722,7 @@ function reviewSubmitEvent(
 		meetingTime?: string;
 		needsClientForm?: boolean;
 		chatSpaceName?: string | null;
+		previousReviewId?: string;
 		previousReviewUrl?: string;
 	} = {},
 ): ChatEvent {
@@ -1725,6 +1736,9 @@ function reviewSubmitEvent(
 			invokedFunction: 'https://example.test/google-chat/events',
 			parameters: {
 				actionName: 'submitReview',
+				previousReviewId:
+					overrides.previousReviewId ??
+					(overrides.previousReviewUrl === '' ? '' : 'previous-report-id'),
 				previousReviewUrl:
 					overrides.previousReviewUrl ??
 					'https://docs.google.com/document/previous-report-id',

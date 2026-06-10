@@ -32,6 +32,7 @@ export type ReviewFolderRequest = {
 	meetingTime: string;
 	reviewMonth: string;
 	needsClientForm: boolean;
+	previousReviewId?: string;
 	previousReviewUrl?: string;
 	/** Google Workspace domains that may respond to the internal feedback form. */
 	internalFormResponderDomains?: string[];
@@ -170,6 +171,13 @@ type DriveResource = {
 	permissions?: DrivePermissionsResource;
 	forms?: FormsResource;
 	documents?: {
+		get?(
+			params: docs_v1.Params$Resource$Documents$Get & {
+				documentId: string;
+			},
+		): Promise<{
+			data: docs_v1.Schema$Document;
+		}>;
 		batchUpdate(
 			params: docs_v1.Params$Resource$Documents$Batchupdate & {
 				documentId: string;
@@ -408,6 +416,10 @@ export async function createReviewFolderInDrive(
 		request.reviewReportTemplateId,
 		'Проверка доступа к шаблону PR report (REVIEW_REPORT_TEMPLATE_ID)',
 	);
+	const previousReviewHeader = await readPreviousReviewHeader(
+		drive,
+		request.previousReviewId,
+	);
 	const report = await withDriveStep(
 		'Копирование PR report из шаблона',
 		async () =>
@@ -416,6 +428,7 @@ export async function createReviewFolderInDrive(
 				request,
 				folder,
 				request.previousReviewUrl ?? '',
+				previousReviewHeader,
 			),
 	);
 
@@ -568,6 +581,7 @@ async function copyReportFromTemplate(
 	request: ReviewFolderRequest & { reviewReportTemplateId: string },
 	folder: CreatedDriveFile,
 	previousReviewUrl: string,
+	previousReviewHeader: PreviousReviewHeader,
 ): Promise<CreatedDriveFile> {
 	const reportName = `${buildReportNamePrefix(request.fullName)}${request.reviewDate.slice(0, 7)}`;
 	const { data } = await drive.files.copy({
@@ -593,6 +607,12 @@ async function copyReportFromTemplate(
 				replaceText('{{REVIEWER_EMAIL}}', request.reviewerEmail),
 				replaceText('{{REVIEW_FOLDER_URL}}', folder.webViewLink),
 				replaceText('{{PREVIOUS_REVIEW_URL}}', previousReviewUrl),
+				replaceText('{{POSITION}}', previousReviewHeader.position),
+				replaceText('{{WORKS_SINCE}}', previousReviewHeader.worksSince),
+				replaceText(
+					'{{PREVIOUS_REVIEW_DATE}}',
+					previousReviewHeader.previousReviewDate,
+				),
 			],
 		},
 	});
@@ -609,6 +629,117 @@ async function copyReportFromTemplate(
 		name: data.name,
 		webViewLink: data.webViewLink,
 	};
+}
+
+type PreviousReviewHeader = {
+	position: string;
+	worksSince: string;
+	previousReviewDate: string;
+};
+
+const MISSING_PREVIOUS_REVIEW_HEADER_VALUE = '-';
+
+const EMPTY_PREVIOUS_REVIEW_HEADER: PreviousReviewHeader = {
+	position: MISSING_PREVIOUS_REVIEW_HEADER_VALUE,
+	worksSince: MISSING_PREVIOUS_REVIEW_HEADER_VALUE,
+	previousReviewDate: MISSING_PREVIOUS_REVIEW_HEADER_VALUE,
+};
+
+async function readPreviousReviewHeader(
+	drive: DriveResource,
+	previousReviewId: string | undefined,
+): Promise<PreviousReviewHeader> {
+	if (!previousReviewId || !drive.documents?.get) {
+		return EMPTY_PREVIOUS_REVIEW_HEADER;
+	}
+
+	try {
+		const { data } = await drive.documents.get({
+			documentId: previousReviewId,
+		});
+		return extractPreviousReviewHeader(data);
+	} catch {
+		return EMPTY_PREVIOUS_REVIEW_HEADER;
+	}
+}
+
+export function extractPreviousReviewHeader(
+	document: docs_v1.Schema$Document,
+): PreviousReviewHeader {
+	const values = new Map<string, string>();
+
+	for (const row of collectDocumentRows(document).slice(0, 30)) {
+		for (let index = 0; index < row.length; index += 1) {
+			const key = normalizeHeaderLabel(row[index] ?? '');
+			if (!isPreviousReviewHeaderLabel(key)) {
+				continue;
+			}
+
+			const value = row[index + 1]?.trim();
+			if (value) {
+				values.set(key, value);
+			}
+		}
+	}
+
+	return {
+		position: values.get('должность') ?? MISSING_PREVIOUS_REVIEW_HEADER_VALUE,
+		worksSince:
+			values.get('работает с') ?? MISSING_PREVIOUS_REVIEW_HEADER_VALUE,
+		previousReviewDate:
+			values.get('дата этого ревью') ?? MISSING_PREVIOUS_REVIEW_HEADER_VALUE,
+	};
+}
+
+function collectDocumentRows(document: docs_v1.Schema$Document): string[][] {
+	return collectStructuralElementRows(document.body?.content ?? []);
+}
+
+function collectStructuralElementRows(
+	elements: docs_v1.Schema$StructuralElement[],
+): string[][] {
+	const rows: string[][] = [];
+
+	for (const element of elements) {
+		const paragraphText = readParagraphText(element.paragraph);
+		if (paragraphText) {
+			rows.push([paragraphText]);
+		}
+
+		for (const tableRow of element.table?.tableRows ?? []) {
+			rows.push(
+				(tableRow.tableCells ?? []).map((cell) =>
+					collectStructuralElementRows(cell.content ?? [])
+						.flat()
+						.join(' ')
+						.trim(),
+				),
+			);
+		}
+	}
+
+	return rows;
+}
+
+function readParagraphText(
+	paragraph: docs_v1.Schema$Paragraph | undefined,
+): string {
+	return (paragraph?.elements ?? [])
+		.map((element) => element.textRun?.content ?? '')
+		.join('')
+		.trim();
+}
+
+function normalizeHeaderLabel(value: string): string {
+	return value.trim().replace(/:$/, '').replace(/\s+/g, ' ').toLowerCase();
+}
+
+function isPreviousReviewHeaderLabel(value: string): boolean {
+	return (
+		value === 'должность' ||
+		value === 'работает с' ||
+		value === 'дата этого ревью'
+	);
 }
 
 type CopyFormFromTemplateOptions = {

@@ -20,6 +20,7 @@ export type ReviewRequest = {
 	reviewDate: string;
 	meetingTime: string;
 	needsClientForm: boolean;
+	previousReviewId: string;
 	previousReviewUrl: string;
 };
 

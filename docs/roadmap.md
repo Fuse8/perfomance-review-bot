@@ -17,7 +17,6 @@ MVP-сценарий реализован: `/review` запускает workflow
 | P2       | Chat UX        | [Chat output format](tasks/chat-output-format.md)                                     |
 | P2       | Calendar       | [Business days reminders](tasks/business-days-reminders.md)                           |
 | P2       | Drive          | [Review report template reviewer name](tasks/review-report-template-reviewer-name.md) |
-| P2       | Drive          | [Previous review header prefill](tasks/previous-review-header-prefill.md)             |
 | P2       | TypeScript     | [Google API types](tasks/google-types.md)                                             |
 | P2       | Data           | [Data retention](tasks/data-retention.md)                                             |
 
@@ -37,6 +36,7 @@ MVP-сценарий реализован: `/review` запускает workflow
 | 2026-06-09 | Forms   | [Feedback form templates shared folder](archive/2026-06-09-feedback-form-templates-shared-folder.md)        |
 | 2026-06-09 | Forms   | [Separate internal and client form access](archive/2026-06-09-client-form-public-access-template-values.md) |
 | 2026-06-10 | Forms   | [Feedback form template env vars](archive/2026-06-10-feedback-form-template-env-vars.md)                    |
+| 2026-06-10 | Drive   | [Previous review header prefill](archive/2026-06-10-previous-review-header-prefill.md)                      |
 
 ## Правила обновления
 

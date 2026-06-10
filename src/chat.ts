@@ -47,6 +47,7 @@ type ReviewWorkflowParams = {
 	reviewerEmail: string;
 	request: ReviewRequest;
 	reviewMonth: string;
+	previousReviewId: string;
 	previousReviewUrl: string;
 };
 
@@ -492,6 +493,7 @@ async function handleEmployeeFolderCheck(
 
 	const currentMonth = formatReviewMonth(new Date().toISOString());
 	let previousReviewStatus = 'Прошлое ревью не найдено';
+	let previousReviewId = '';
 	let previousReviewUrl = '';
 	try {
 		const previousReview = await deps.findPreviousReviewReport(
@@ -502,6 +504,7 @@ async function handleEmployeeFolderCheck(
 		);
 
 		if (previousReview) {
+			previousReviewId = previousReview.id;
 			previousReviewUrl = previousReview.webViewLink;
 			previousReviewStatus = `Прошлое ревью найдено: ${formatPreviousReviewLabel(previousReview.name)}`;
 			logChatEvent('employeeCheck.previousReview.found', {
@@ -540,6 +543,7 @@ async function handleEmployeeFolderCheck(
 			fullName: manualFullName,
 			employeeEmail,
 			previousReviewStatus,
+			previousReviewId,
 			previousReviewUrl,
 		}),
 	);
@@ -631,6 +635,7 @@ async function handleReviewSubmit(
 			reviewerEmail: token.googleUserEmail,
 			request: parsed.value,
 			reviewMonth: month,
+			previousReviewId: parsed.value.previousReviewId,
 			previousReviewUrl: parsed.value.previousReviewUrl,
 		},
 		deps,
@@ -690,6 +695,7 @@ async function runReviewWorkflow(
 		reviewerEmail,
 		request,
 		reviewMonth,
+		previousReviewId,
 		previousReviewUrl,
 	} = params;
 	logChatEvent('submit.createFolder.start', {
@@ -708,6 +714,7 @@ async function runReviewWorkflow(
 			meetingTime: request.meetingTime,
 			reviewMonth,
 			needsClientForm: request.needsClientForm,
+			previousReviewId,
 			previousReviewUrl,
 		});
 	} catch (error) {
@@ -871,6 +878,7 @@ function parseReviewRequest(
 	const reviewDate = getDateInput(inputs.reviewDate);
 	const meetingTime = getStringInput(inputs.meetingTime).trim();
 	const needsClientForm = getStringInput(inputs.needsClientForm) === 'yes';
+	const previousReviewId = parameters.previousReviewId ?? '';
 	const previousReviewUrl = parameters.previousReviewUrl ?? '';
 
 	if (!fullName) {
@@ -919,6 +927,7 @@ function parseReviewRequest(
 			reviewDate,
 			meetingTime,
 			needsClientForm,
+			previousReviewId,
 			previousReviewUrl,
 		},
 	};
@@ -1514,6 +1523,7 @@ function reviewFormCard(
 		fullName?: string;
 		employeeEmail?: string;
 		previousReviewStatus?: string;
+		previousReviewId?: string;
 		previousReviewUrl?: string;
 	} = {},
 ): ChatCard {
@@ -1602,6 +1612,10 @@ function reviewFormCard(
 												{
 													key: 'previousReviewUrl',
 													value: initialValues.previousReviewUrl ?? '',
+												},
+												{
+													key: 'previousReviewId',
+													value: initialValues.previousReviewId ?? '',
 												},
 											],
 										},
