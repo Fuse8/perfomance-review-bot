@@ -83,3 +83,19 @@ export async function completeOAuth(
 
 	return data.email;
 }
+
+export async function getReviewerName(
+	config: AppConfig,
+	refreshToken: string,
+): Promise<string | null> {
+	const client = createOAuthClient(config);
+	client.setCredentials({ refresh_token: refreshToken });
+
+	try {
+		const oauth2 = google.oauth2({ version: 'v2', auth: client });
+		const { data } = await oauth2.userinfo.get();
+		return data.name?.trim() || null;
+	} catch {
+		return null;
+	}
+}

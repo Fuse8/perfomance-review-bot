@@ -14,7 +14,7 @@ import {
 } from './drive.js';
 import { sendChatMessage } from './google-chat.js';
 import { formatAuthRequiredMessage, isOAuthAuthError } from './oauth-errors.js';
-import { buildAuthUrl } from './oauth.js';
+import { buildAuthUrl, getReviewerName } from './oauth.js';
 import { searchDirectoryEmployees } from './people.js';
 import type { TokenStorage } from './storage.js';
 import type {
@@ -113,6 +113,7 @@ type ChatEventHandlerDeps = {
 	findEmployeeFolder: typeof findEmployeeFolder;
 	findPreviousReviewReport: typeof findPreviousReviewReport;
 	searchDirectoryEmployees: typeof searchDirectoryEmployees;
+	getReviewerName: typeof getReviewerName;
 	buildAuthUrl: typeof buildAuthUrl;
 	sendChatMessage: typeof sendChatMessage;
 };
@@ -124,6 +125,7 @@ const defaultDeps: ChatEventHandlerDeps = {
 	findEmployeeFolder,
 	findPreviousReviewReport,
 	searchDirectoryEmployees,
+	getReviewerName,
 	buildAuthUrl,
 	sendChatMessage,
 };
@@ -704,12 +706,19 @@ async function runReviewWorkflow(
 		needsClientForm: request.needsClientForm,
 		hasPreviousReview: Boolean(previousReviewUrl),
 	});
+	const reviewerName = await resolveReviewerName(
+		config,
+		deps,
+		refreshToken,
+		reviewerEmail,
+	);
 	let folder;
 	try {
 		folder = await deps.createReviewFolder(config, refreshToken, {
 			fullName: request.fullName,
 			employeeEmail: request.employeeEmail,
 			reviewerEmail,
+			reviewerName,
 			reviewDate: request.reviewDate,
 			meetingTime: request.meetingTime,
 			reviewMonth,
@@ -846,6 +855,19 @@ async function runReviewWorkflow(
 		remindersCount: reminderEvents.length,
 		hasCalendar: Boolean(calendarEvent),
 	};
+}
+
+async function resolveReviewerName(
+	config: AppConfig,
+	deps: ChatEventHandlerDeps,
+	refreshToken: string,
+	reviewerEmail: string,
+): Promise<string> {
+	try {
+		return (await deps.getReviewerName(config, refreshToken)) || reviewerEmail;
+	} catch {
+		return reviewerEmail;
+	}
 }
 
 function validateReviewConfig(config: AppConfig): string | null {

@@ -8,6 +8,8 @@ Core project information, technology stack, environment configuration, and avail
 
 - Prefer small scoped changes over broad refactors.
 - Do not create a new git branch during development; work in the current branch.
+- Do not commit real Google Drive, Docs, Forms, Calendar, or other external
+  resource IDs into code, env examples, or docs; use placeholders instead.
 - When starting a task, first create an explicit plan and wait for user approval before implementation.
 - After finishing a task, wait for user review. If review requests changes, implement them. If there are no requested changes, move the task document to `docs/archive/` and mark it as done.
 - After all requested work is done and verified, ask the user before staging files. Create a git commit only after the user confirms.

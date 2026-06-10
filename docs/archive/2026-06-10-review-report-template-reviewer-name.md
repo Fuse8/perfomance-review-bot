@@ -7,8 +7,8 @@ email ревьюера вместо имени.
 
 ## Desired Behavior
 
-- Отчет создается из Google Docs template
-  `14inqT-wOe9iOu8lPosJNago-fhr3IN05TWhQQKVCosw`.
+- Отчет создается из Google Docs template, заданного через
+  `REVIEW_REPORT_TEMPLATE_ID`.
 - В шаблон подставляется `REVIEWER_NAME`, а не `REVIEWER_EMAIL`.
 - Имя ревьюера берется из OAuth profile или People API, с fallback на email.
 
@@ -19,7 +19,7 @@ email ревьюера вместо имени.
 
 ## Plan
 
-- Зафиксировать новый template ID в `.env.example` и документации.
+- Обновить `.env.example` и документацию без фиксации реального template ID.
 - Найти источник имени текущего ревьюера в OAuth/People flow.
 - Передавать reviewer name в создание отчета.
 - Заменить placeholder `{{REVIEWER_EMAIL}}` на `{{REVIEWER_NAME}}`.
@@ -38,4 +38,7 @@ email ревьюера вместо имени.
 
 ## Result
 
-Заполнить после реализации.
+Отчет создается из template, заданного через `REVIEW_REPORT_TEMPLATE_ID`.
+Workflow получает имя ревьюера из OAuth profile и передает его в Drive flow.
+В Google Docs template заменяется `{{REVIEWER_NAME}}`; если имя недоступно,
+используется email ревьюера.

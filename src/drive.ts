@@ -28,6 +28,7 @@ export type ReviewFolderRequest = {
 	fullName: string;
 	employeeEmail: string;
 	reviewerEmail: string;
+	reviewerName: string;
 	reviewDate: string;
 	meetingTime: string;
 	reviewMonth: string;
@@ -604,7 +605,7 @@ async function copyReportFromTemplate(
 			requests: [
 				replaceText('{{FULL_NAME}}', request.fullName),
 				replaceText('{{REVIEW_DATE}}', request.reviewDate),
-				replaceText('{{REVIEWER_EMAIL}}', request.reviewerEmail),
+				replaceText('{{REVIEWER_NAME}}', request.reviewerName),
 				replaceText('{{REVIEW_FOLDER_URL}}', folder.webViewLink),
 				replaceText('{{PREVIOUS_REVIEW_URL}}', previousReviewUrl),
 				replaceText('{{POSITION}}', previousReviewHeader.position),

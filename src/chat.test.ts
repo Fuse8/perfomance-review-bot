@@ -88,6 +88,9 @@ function createHandler(overrides: Partial<ChatEventHandlerDeps> = {}) {
 				},
 			];
 		},
+		async getReviewerName() {
+			return 'reviewer@example.test';
+		},
 		...overrides,
 	});
 }
@@ -99,6 +102,7 @@ type ChatEventHandlerDeps = {
 	findPreviousReviewReport: typeof import('./drive.js').findPreviousReviewReport;
 	findEmployeeFolder: typeof import('./drive.js').findEmployeeFolder;
 	searchDirectoryEmployees: typeof import('./people.js').searchDirectoryEmployees;
+	getReviewerName: typeof import('./oauth.js').getReviewerName;
 	buildAuthUrl: typeof import('./oauth.js').buildAuthUrl;
 	sendChatMessage: typeof import('./google-chat.js').sendChatMessage;
 };
@@ -1084,12 +1088,17 @@ test('/review submit creates a test folder and returns its link', async () => {
 		async findPreviousReviewReport() {
 			throw new Error('should not look up previous review on submit');
 		},
+		async getReviewerName(_config, refreshToken) {
+			assert.equal(refreshToken, 'refresh-token');
+			return 'Reviewer Name';
+		},
 		async createReviewFolder(_config, refreshToken, request) {
 			assert.equal(refreshToken, 'refresh-token');
 			assert.deepEqual(request, {
 				fullName: 'Ivan Petrov',
 				employeeEmail: 'iaroslav.zaiarnyi@byteminds.co.uk',
 				reviewerEmail: 'reviewer@example.test',
+				reviewerName: 'Reviewer Name',
 				reviewDate: '2026-06-15',
 				meetingTime: '14:30',
 				reviewMonth: '2026.06',
@@ -1239,6 +1248,29 @@ test('/review submit creates a test folder and returns its link', async () => {
 			text: messageText,
 		},
 	]);
+});
+
+test('/review submit falls back to reviewer email when profile name is missing', async () => {
+	const reviewerNames: string[] = [];
+	const handleChatEvent = createHandler({
+		async getReviewerName() {
+			return '';
+		},
+		async createReviewFolder(_config, _refreshToken, request) {
+			reviewerNames.push(request.reviewerName);
+			return {
+				id: 'folder-id',
+				name: '2026.06',
+				webViewLink: 'https://drive.google.com/folder',
+			};
+		},
+		async sendChatMessage() {},
+	});
+
+	await handleChatEvent(config, storage, reviewSubmitEvent());
+	await flushBackgroundTasks();
+
+	assert.deepEqual(reviewerNames, ['reviewer@example.test']);
 });
 
 test('/review submit accepts valid meeting time', async () => {
