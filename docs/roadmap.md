@@ -14,13 +14,18 @@ MVP-сценарий реализован: `/review` запускает workflow
 | -------- | -------------- | ------------------------------------------------------------------------------------- |
 | P1       | Auth / Storage | [Auth storage lifecycle](tasks/auth-storage-lifecycle.md)                             |
 | P1       | Settings       | [Reviewer settings command](tasks/reviewer-settings-command.md)                       |
-| P1       | Forms          | [Forms response spreadsheets](tasks/forms-response-spreadsheets.md)                   |
 | P2       | Chat UX        | [Chat output format](tasks/chat-output-format.md)                                     |
 | P2       | Calendar       | [Business days reminders](tasks/business-days-reminders.md)                           |
 | P2       | Drive          | [Review report template reviewer name](tasks/review-report-template-reviewer-name.md) |
 | P2       | Drive          | [Previous review header prefill](tasks/previous-review-header-prefill.md)             |
 | P2       | TypeScript     | [Google API types](tasks/google-types.md)                                             |
 | P2       | Data           | [Data retention](tasks/data-retention.md)                                             |
+
+## На утверждении
+
+| Date       | Area  | Task                                                                | Branch                              | Status                                 |
+| ---------- | ----- | ------------------------------------------------------------------- | ----------------------------------- | -------------------------------------- |
+| 2026-06-10 | Forms | [Forms response spreadsheets](tasks/forms-response-spreadsheets.md) | `codex/forms-response-spreadsheets` | Сделано, зафиксировано, ожидает merge. |
 
 ## Completed
 
