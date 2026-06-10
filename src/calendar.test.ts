@@ -71,11 +71,13 @@ test('createCalendarEventInCalendar creates a 2.5h review meeting with links', a
 	]);
 });
 
-test('buildReviewerReminderDate subtracts working days and skips weekends', () => {
-	assert.equal(buildReviewerReminderDate('2026-06-15', 14), '2026-05-26');
-	assert.equal(buildReviewerReminderDate('2026-06-15', 7), '2026-06-04');
-	assert.equal(buildReviewerReminderDate('2026-06-15', 3), '2026-06-10');
+test('buildReviewerReminderDate subtracts calendar days and shifts weekends backward', () => {
+	assert.equal(buildReviewerReminderDate('2026-06-15', 14), '2026-06-01');
+	assert.equal(buildReviewerReminderDate('2026-06-15', 7), '2026-06-08');
+	assert.equal(buildReviewerReminderDate('2026-06-15', 3), '2026-06-12');
+	assert.equal(buildReviewerReminderDate('2026-05-06', 14), '2026-04-22');
 	assert.equal(buildReviewerReminderDate('2026-06-08', 1), '2026-06-05');
+	assert.equal(buildReviewerReminderDate('2026-06-08', 2), '2026-06-05');
 
 	for (const daysBefore of [1, 3, 7, 14, 20]) {
 		const date = new Date(
@@ -147,11 +149,11 @@ test('createReviewerReminderEventsInCalendar creates 3 reviewer reminder events 
 					'Previous review: https://docs.google.com/document/previous-report-id',
 				].join('\n'),
 				start: {
-					dateTime: '2026-05-26T12:00:00+05:00',
+					dateTime: '2026-06-01T12:00:00+05:00',
 					timeZone: 'Asia/Yekaterinburg',
 				},
 				end: {
-					dateTime: '2026-05-26T12:30:00+05:00',
+					dateTime: '2026-06-01T12:30:00+05:00',
 					timeZone: 'Asia/Yekaterinburg',
 				},
 				attendees: [{ email: 'reviewer@example.test' }],
@@ -169,11 +171,11 @@ test('createReviewerReminderEventsInCalendar creates 3 reviewer reminder events 
 					'Previous review: https://docs.google.com/document/previous-report-id',
 				].join('\n'),
 				start: {
-					dateTime: '2026-06-04T12:00:00+05:00',
+					dateTime: '2026-06-08T12:00:00+05:00',
 					timeZone: 'Asia/Yekaterinburg',
 				},
 				end: {
-					dateTime: '2026-06-04T12:30:00+05:00',
+					dateTime: '2026-06-08T12:30:00+05:00',
 					timeZone: 'Asia/Yekaterinburg',
 				},
 				attendees: [{ email: 'reviewer@example.test' }],
@@ -191,11 +193,11 @@ test('createReviewerReminderEventsInCalendar creates 3 reviewer reminder events 
 					'Previous review: https://docs.google.com/document/previous-report-id',
 				].join('\n'),
 				start: {
-					dateTime: '2026-06-10T12:00:00+05:00',
+					dateTime: '2026-06-12T12:00:00+05:00',
 					timeZone: 'Asia/Yekaterinburg',
 				},
 				end: {
-					dateTime: '2026-06-10T12:30:00+05:00',
+					dateTime: '2026-06-12T12:30:00+05:00',
 					timeZone: 'Asia/Yekaterinburg',
 				},
 				attendees: [{ email: 'reviewer@example.test' }],

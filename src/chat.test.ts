@@ -2,15 +2,14 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import type { AppConfig } from './config.js';
 import { createChatEventHandler, getDirectorySearchQuery } from './chat.js';
-import type { TokenStorage } from './storage.js';
-import type { ChatEvent } from './types.js';
+import type { AppStorage } from './storage.js';
+import type { ChatEvent, ReviewerSettings } from './types.js';
 
 const config: AppConfig = {
 	appBaseUrl: 'https://example.test',
 	googleClientId: 'client-id',
 	googleClientSecret: 'client-secret',
 	googleRedirectUri: 'https://example.test/auth/google/callback',
-	reviewsRootFolderId: 'root-folder-id',
 	chatServiceAccountKeyFile: undefined,
 	reviewReportTemplateId: 'report-template-id',
 	internalReviewFormTemplateId: 'internal-form-template-id',
@@ -32,7 +31,7 @@ async function flushBackgroundTasks(): Promise<void> {
 	await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
-const storage: TokenStorage = {
+const storage = {
 	async get() {
 		return {
 			chatUserId: 'users/123',
@@ -47,6 +46,18 @@ const storage: TokenStorage = {
 	async consumeOAuthState() {
 		return null;
 	},
+	async getReviewerSettings() {
+		return {
+			chatUserId: 'users/123',
+			rootFolderId: 'root-folder-id',
+			taskCollectDaysBefore: 14,
+			taskCheckDaysBefore: 7,
+			taskPrepareDaysBefore: 3,
+			taskReminderTime: '12:00',
+			updatedAt: '2026-06-10T00:00:00.000Z',
+		};
+	},
+	async saveReviewerSettings() {},
 };
 
 function createHandler(overrides: Partial<ChatEventHandlerDeps> = {}) {
@@ -91,6 +102,7 @@ function createHandler(overrides: Partial<ChatEventHandlerDeps> = {}) {
 		async getReviewerName() {
 			return 'reviewer@example.test';
 		},
+		async validateReviewerRootFolder() {},
 		...overrides,
 	});
 }
@@ -105,6 +117,11 @@ type ChatEventHandlerDeps = {
 	getReviewerName: typeof import('./oauth.js').getReviewerName;
 	buildAuthUrl: typeof import('./oauth.js').buildAuthUrl;
 	sendChatMessage: typeof import('./google-chat.js').sendChatMessage;
+	validateReviewerRootFolder: (
+		config: AppConfig,
+		refreshToken: string,
+		rootFolderId: string,
+	) => Promise<void>;
 };
 
 test('/info returns bot version and review command help', async () => {
@@ -119,7 +136,7 @@ test('/info returns bot version and review command help', async () => {
 	const text = getResponseText(response);
 	assert.match(
 		text,
-		/^🚀 Performance Review Assistant\n\nВерсия: v\d+\.\d+\.\d+\n\n────────────────────────────────────\n\n📋 Доступные команды\n\n• \/review {4}Запустить Performance Review\n• \/info {9}Показать информацию о боте\n\n🕒 Важно\n\nВсе даты и время ревью, встреч и задач указываются\nпо челябинскому времени \(UTC\+5\)\.$/,
+		/^🚀 Performance Review Assistant\n\nВерсия: v\d+\.\d+\.\d+\n\n────────────────────────────────────\n\n📋 Доступные команды\n\n• \/review {4}Запустить Performance Review\n• \/settings {2}Настроить папку и задачи ревьюера\n• \/info {9}Показать информацию о боте\n\n🕒 Важно\n\nПеред \/review настройте корневую папку через \/settings\.\nБез нее запуск Performance Review недоступен\.\n\nВсе даты и время ревью, встреч и задач указываются\nпо челябинскому времени \(UTC\+5\)\.$/,
 	);
 	assert.doesNotMatch(text, /\/check-auth/);
 });
@@ -152,9 +169,168 @@ test('/info works for standalone slash command payload', async () => {
 	assert.match(text, /Версия: v\d+\.\d+\.\d+/);
 	assert.match(text, /📋 Доступные команды/);
 	assert.match(text, /\/review/);
+	assert.match(text, /\/settings/);
 	assert.match(text, /\/info/);
 	assert.match(text, /челябинскому времени \(UTC\+5\)/i);
 	assert.doesNotMatch(text, /\/check-auth/);
+});
+
+test('/settings without token returns auth card', async () => {
+	const emptyStorage = {
+		...storage,
+		async get() {
+			return null;
+		},
+	};
+	const handleChatEvent = createChatEventHandler({
+		async buildAuthUrl() {
+			return 'https://example.test/oauth';
+		},
+	});
+
+	const response = await handleChatEvent(
+		config,
+		emptyStorage,
+		settingsCommandEvent(),
+	);
+
+	assert.equal(getFirstCard(response).header?.title, 'Нужно подключить Google');
+});
+
+test('/settings opens dialog with default values', async () => {
+	const settingsStorage = {
+		...storage,
+		async getReviewerSettings() {
+			return null;
+		},
+	};
+	const handleChatEvent = createHandler();
+
+	const response = await handleChatEvent(
+		config,
+		settingsStorage,
+		settingsCommandEvent(),
+	);
+	const card = getUpdatedCard(response);
+
+	assert.equal(card.header?.title, 'Настройки ревьюера');
+	assert.deepEqual(findTextInputValues(card), {
+		rootFolderId: '',
+		taskCollectDaysBefore: '14',
+		taskCheckDaysBefore: '7',
+		taskPrepareDaysBefore: '3',
+		taskReminderTime: '12:00',
+	});
+});
+
+test('/settings saves validated reviewer settings', async () => {
+	let savedSettings: ReviewerSettings | null = null;
+	const settingsStorage = {
+		...storage,
+		async saveReviewerSettings(settings: ReviewerSettings) {
+			savedSettings = settings;
+		},
+	};
+	const validatedFolderIds: string[] = [];
+	const handleChatEvent = createHandler({
+		async validateReviewerRootFolder(_config, refreshToken, rootFolderId) {
+			assert.equal(refreshToken, 'refresh-token');
+			validatedFolderIds.push(rootFolderId);
+		},
+	});
+
+	const response = await handleChatEvent(
+		config,
+		settingsStorage,
+		settingsSubmitEvent({
+			rootFolderId: 'reviewer-root-folder-id',
+			taskCollectDaysBefore: '10',
+			taskCheckDaysBefore: '5',
+			taskPrepareDaysBefore: '1',
+			taskReminderTime: '09:30',
+		}),
+	);
+
+	assert.equal(getResponseText(response), 'Настройки сохранены.');
+	assert.deepEqual(validatedFolderIds, ['reviewer-root-folder-id']);
+	const settings = savedSettings as ReviewerSettings | null;
+	assert.ok(settings);
+	assert.deepEqual(settings, {
+		chatUserId: 'users/123',
+		rootFolderId: 'reviewer-root-folder-id',
+		taskCollectDaysBefore: 10,
+		taskCheckDaysBefore: 5,
+		taskPrepareDaysBefore: 1,
+		taskReminderTime: '09:30',
+		updatedAt: settings.updatedAt,
+	});
+	assert.match(settings.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
+});
+
+test('/settings rejects invalid values before saving', async () => {
+	let saveCalled = false;
+	let validateCalled = false;
+	const settingsStorage = {
+		...storage,
+		async saveReviewerSettings() {
+			saveCalled = true;
+		},
+	};
+	const handleChatEvent = createHandler({
+		async validateReviewerRootFolder() {
+			validateCalled = true;
+		},
+	});
+
+	const response = await handleChatEvent(
+		config,
+		settingsStorage,
+		settingsSubmitEvent({
+			rootFolderId: '',
+			taskCollectDaysBefore: '-1',
+			taskCheckDaysBefore: 'abc',
+			taskPrepareDaysBefore: '3',
+			taskReminderTime: '25:00',
+		}),
+	);
+
+	const text = getResponseText(response);
+	assert.match(text, /Укажите root folder ID/);
+	assert.equal(saveCalled, false);
+	assert.equal(validateCalled, false);
+});
+
+test('/settings keeps dialog open when root folder is not valid', async () => {
+	let saveCalled = false;
+	const settingsStorage = {
+		...storage,
+		async saveReviewerSettings() {
+			saveCalled = true;
+		},
+	};
+	const handleChatEvent = createHandler({
+		async validateReviewerRootFolder() {
+			throw new Error('not a folder');
+		},
+	});
+
+	const response = await handleChatEvent(
+		config,
+		settingsStorage,
+		settingsSubmitEvent({
+			rootFolderId: 'bad-folder-id',
+			taskCollectDaysBefore: '10',
+			taskCheckDaysBefore: '5',
+			taskPrepareDaysBefore: '1',
+			taskReminderTime: '09:30',
+		}),
+	);
+	const card = getUpdatedCard(response);
+
+	assert.equal(card.header?.title, 'Настройки ревьюера');
+	assert.match(getCardText(card), /Root folder ID должен быть доступной/);
+	assert.equal(findTextInputValues(card).rootFolderId, 'bad-folder-id');
+	assert.equal(saveCalled, false);
 });
 
 test('install event returns info and sends auth link as a second message', async () => {
@@ -265,7 +441,7 @@ test('/review opens employee lookup card', async () => {
 });
 
 test('/review returns auth card when reviewer token is missing', async () => {
-	const emptyStorage: TokenStorage = {
+	const emptyStorage: AppStorage = {
 		...storage,
 		async get() {
 			return null;
@@ -295,7 +471,7 @@ test('/review returns auth card when reviewer token is missing', async () => {
 });
 
 test('/review without token returns auth card for standalone command event', async () => {
-	const emptyStorage: TokenStorage = {
+	const emptyStorage: AppStorage = {
 		...storage,
 		async get() {
 			return null;
@@ -324,7 +500,7 @@ test('/review without token returns auth card for standalone command event', asy
 });
 
 test('/review without token returns auth card for standalone slash command payload', async () => {
-	const emptyStorage: TokenStorage = {
+	const emptyStorage: AppStorage = {
 		...storage,
 		async get() {
 			return null;
@@ -361,7 +537,7 @@ test('/review without token returns auth card for standalone slash command paylo
 });
 
 test('/review employee suggestions close dialog and send auth message when token is missing', async () => {
-	const emptyStorage: TokenStorage = {
+	const emptyStorage: AppStorage = {
 		...storage,
 		async get() {
 			return null;
@@ -389,7 +565,7 @@ test('/review employee suggestions close dialog and send auth message when token
 
 test('/review employee suggestions close dialog and send auth message on invalid_grant', async () => {
 	let deleted = false;
-	const trackingStorage: TokenStorage = {
+	const trackingStorage: AppStorage = {
 		...storage,
 		async delete(chatUserId) {
 			deleted = true;
@@ -424,7 +600,7 @@ test('/review employee suggestions close dialog and send auth message on invalid
 
 test('/review submit sends auth link to chat when workflow fails with invalid_grant', async () => {
 	let deleted = false;
-	const trackingStorage: TokenStorage = {
+	const trackingStorage: AppStorage = {
 		...storage,
 		async delete() {
 			deleted = true;
@@ -454,7 +630,7 @@ test('/review submit sends auth link to chat when workflow fails with invalid_gr
 
 test('/review employee check returns auth message when previous review lookup fails with invalid_grant', async () => {
 	let deleted = false;
-	const trackingStorage: TokenStorage = {
+	const trackingStorage: AppStorage = {
 		...storage,
 		async delete() {
 			deleted = true;
@@ -519,6 +695,85 @@ test('/review employee suggestions return matching directory employees', async (
 			},
 		},
 	});
+});
+
+test('/review without reviewer settings asks to run settings first', async () => {
+	const settingsStorage = {
+		...storage,
+		async getReviewerSettings() {
+			return null;
+		},
+	};
+	const handleChatEvent = createHandler({
+		async findEmployeeFolder() {
+			throw new Error('should not check employee folders without settings');
+		},
+	});
+
+	const response = await handleChatEvent(
+		config,
+		settingsStorage,
+		reviewCommandEvent(),
+	);
+
+	assert.match(getResponseText(response), /Сначала настройте \/settings/);
+});
+
+test('/review uses reviewer settings for root folder and reminders', async () => {
+	const sentMessages: Array<{ spaceName: string; text: string }> = [];
+	const settingsStorage = {
+		...storage,
+		async getReviewerSettings() {
+			return {
+				chatUserId: 'users/123',
+				rootFolderId: 'reviewer-root-folder-id',
+				taskCollectDaysBefore: 10,
+				taskCheckDaysBefore: 5,
+				taskPrepareDaysBefore: 1,
+				taskReminderTime: '09:30',
+				updatedAt: '2026-06-10T00:00:00.000Z',
+			};
+		},
+	};
+	const handleChatEvent = createHandler({
+		async findPreviousReviewReport() {
+			throw new Error('should not look up previous review on submit');
+		},
+		async createReviewFolder(effectiveConfig) {
+			assert.equal(
+				effectiveConfig.reviewsRootFolderId,
+				'reviewer-root-folder-id',
+			);
+			return {
+				id: 'folder-id',
+				name: '2026.06',
+				webViewLink: 'https://drive.google.com/folder',
+			};
+		},
+		async createCalendarEvent() {
+			return {
+				id: 'calendar-event-id',
+				summary: 'Performance Review: Ivan Petrov',
+				htmlLink: 'https://calendar.google.com/event?eid=calendar-event-id',
+				startDateTime: '2026-06-15T14:30:00+05:00',
+			};
+		},
+		async createReviewerReminderEvents(effectiveConfig) {
+			assert.equal(effectiveConfig.taskCollectDaysBefore, 10);
+			assert.equal(effectiveConfig.taskCheckDaysBefore, 5);
+			assert.equal(effectiveConfig.taskPrepareDaysBefore, 1);
+			assert.equal(effectiveConfig.taskReminderTime, '09:30');
+			return [];
+		},
+		async sendChatMessage(_config, spaceName, text) {
+			sentMessages.push({ spaceName, text });
+		},
+	});
+
+	await handleChatEvent(config, settingsStorage, reviewSubmitEvent());
+	await flushBackgroundTasks();
+
+	assert.equal(sentMessages.length, 2);
 });
 
 test('/review employee suggestions show empty-state message when nothing matches', async () => {
@@ -1638,6 +1893,66 @@ function reviewCommandEvent(spaceName = 'spaces/AAA'): ChatEvent {
 	};
 }
 
+function settingsCommandEvent(): ChatEvent {
+	return {
+		user: {
+			name: 'users/123',
+		},
+		appCommandMetadata: {
+			appCommandId: 3,
+		},
+	};
+}
+
+function settingsSubmitEvent(overrides: {
+	rootFolderId?: string;
+	taskCollectDaysBefore?: string;
+	taskCheckDaysBefore?: string;
+	taskPrepareDaysBefore?: string;
+	taskReminderTime?: string;
+}): ChatEvent {
+	return {
+		user: {
+			name: 'users/123',
+		},
+		isDialogEvent: true,
+		dialogEventType: 'SUBMIT_DIALOG',
+		common: {
+			invokedFunction: 'https://example.test/google-chat/events',
+			parameters: {
+				actionName: 'saveReviewerSettings',
+			},
+			formInputs: {
+				rootFolderId: {
+					stringInputs: {
+						value: [overrides.rootFolderId ?? 'root-folder-id'],
+					},
+				},
+				taskCollectDaysBefore: {
+					stringInputs: {
+						value: [overrides.taskCollectDaysBefore ?? '14'],
+					},
+				},
+				taskCheckDaysBefore: {
+					stringInputs: {
+						value: [overrides.taskCheckDaysBefore ?? '7'],
+					},
+				},
+				taskPrepareDaysBefore: {
+					stringInputs: {
+						value: [overrides.taskPrepareDaysBefore ?? '3'],
+					},
+				},
+				taskReminderTime: {
+					stringInputs: {
+						value: [overrides.taskReminderTime ?? '12:00'],
+					},
+				},
+			},
+		},
+	};
+}
+
 function employeeSuggestionsEvent(
 	query: string,
 	overrides: { spaceName?: string } = {},
@@ -1879,6 +2194,24 @@ function getCardButtonText(card: {
 		})
 		.map((button) => button.text ?? '')
 		.join('\n');
+}
+
+function findTextInputValues(card: {
+	sections?: Array<{ widgets?: unknown[] }>;
+}): Record<string, string> {
+	return Object.fromEntries(
+		(card.sections ?? [])
+			.flatMap((section) => section.widgets ?? [])
+			.map(
+				(widget) =>
+					(widget as { textInput?: { name?: string; value?: string } })
+						.textInput,
+			)
+			.filter((textInput): textInput is { name: string; value?: string } =>
+				Boolean(textInput?.name),
+			)
+			.map((textInput) => [textInput.name, textInput.value ?? '']),
+	);
 }
 
 function getResponseText(response: Record<string, unknown>): string {

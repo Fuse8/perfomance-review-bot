@@ -41,4 +41,15 @@ config, а `REVIEWS_ROOT_FOLDER_ID` глобальный.
 
 ## Result
 
-Заполнить после реализации.
+Реализовано:
+
+- `/settings` открывает dialog настроек ревьюера и сохраняет root folder ID,
+  дни до задач и время задач.
+- Root folder ID проверяется через Google Drive перед сохранением.
+- `/review` требует сохраненные настройки ревьюера и использует их для Drive
+  root folder и Calendar reminders.
+- Reminder intervals считаются как календарные дни до review; если дата задачи
+  выпадает на выходной, она сдвигается назад до ближайшего рабочего дня.
+- `REVIEWS_ROOT_FOLDER_ID` удален из runtime config и env examples.
+- Контракт `TokenStorage` сохранен; reviewer settings добавлены отдельным
+  storage contract рядом с Prisma storage.

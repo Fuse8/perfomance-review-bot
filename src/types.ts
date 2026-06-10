@@ -14,6 +14,16 @@ export type OAuthState = {
 	createdAt: string;
 };
 
+export type ReviewerSettings = {
+	chatUserId: string;
+	rootFolderId: string;
+	taskCollectDaysBefore: number;
+	taskCheckDaysBefore: number;
+	taskPrepareDaysBefore: number;
+	taskReminderTime: string;
+	updatedAt: string;
+};
+
 export type ReviewRequest = {
 	fullName: string;
 	employeeEmail: string;

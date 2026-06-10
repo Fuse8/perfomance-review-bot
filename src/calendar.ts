@@ -227,18 +227,11 @@ function formatYekaterinburgDateTime(date: Date): string {
 
 export function buildReviewerReminderDate(
 	reviewDate: string,
-	workingDaysBefore: number,
+	daysBefore: number,
 ): string {
 	const [year, month, day] = reviewDate.split('-').map(Number);
 	const date = new Date(Date.UTC(year, month - 1, day));
-	let remaining = workingDaysBefore;
-
-	while (remaining > 0) {
-		date.setUTCDate(date.getUTCDate() - 1);
-		if (isWeekday(date)) {
-			remaining -= 1;
-		}
-	}
+	date.setUTCDate(date.getUTCDate() - daysBefore);
 
 	while (!isWeekday(date)) {
 		date.setUTCDate(date.getUTCDate() - 1);

@@ -42,6 +42,12 @@ Opens dialog: enabled
 ```
 
 ```text
+Name: /settings
+Command ID: 3
+Opens dialog: enabled
+```
+
+```text
 Name: /info
 Command ID: 2
 ```

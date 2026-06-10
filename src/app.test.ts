@@ -3,14 +3,13 @@ import { EventEmitter } from 'node:events';
 import { test } from 'vitest';
 import type { AppConfig } from './config.js';
 import { createApp } from './app.js';
-import type { TokenStorage } from './storage.js';
+import type { AppStorage } from './storage.js';
 
 const config: AppConfig = {
 	appBaseUrl: 'https://example.test',
 	googleClientId: 'client-id',
 	googleClientSecret: 'client-secret',
 	googleRedirectUri: 'https://example.test/auth/google/callback',
-	reviewsRootFolderId: 'root-folder-id',
 	chatServiceAccountKeyFile: undefined,
 	chatServiceAccountCredentials: undefined,
 	reviewReportTemplateId: 'report-template-id',
@@ -25,7 +24,7 @@ const config: AppConfig = {
 	port: 8080,
 };
 
-const storage: TokenStorage = {
+const storage: AppStorage = {
 	async get() {
 		return null;
 	},
@@ -35,6 +34,10 @@ const storage: TokenStorage = {
 	async consumeOAuthState() {
 		return null;
 	},
+	async getReviewerSettings() {
+		return null;
+	},
+	async saveReviewerSettings() {},
 };
 
 test('createApp serves healthz for Vercel/runtime checks', async () => {

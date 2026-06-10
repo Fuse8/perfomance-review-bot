@@ -1,7 +1,7 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 import type { AppConfig } from './config.js';
-import type { OAuthState, ReviewerToken } from './types.js';
+import type { OAuthState, ReviewerSettings, ReviewerToken } from './types.js';
 
 let prismaClient: PrismaClient | null = null;
 
@@ -13,7 +13,14 @@ export interface TokenStorage {
 	consumeOAuthState(state: string): Promise<OAuthState | null>;
 }
 
-export function createTokenStorage(config: AppConfig): TokenStorage {
+export interface ReviewerSettingsStorage {
+	getReviewerSettings(chatUserId: string): Promise<ReviewerSettings | null>;
+	saveReviewerSettings(settings: ReviewerSettings): Promise<void>;
+}
+
+export type AppStorage = TokenStorage & ReviewerSettingsStorage;
+
+export function createTokenStorage(config: AppConfig): AppStorage {
 	return createPrismaTokenStorage(config);
 }
 
@@ -35,12 +42,24 @@ type PrismaOAuthStateDelegate = {
 	delete(args: { where: { state: string } }): Promise<unknown>;
 };
 
+type PrismaReviewerSettingsDelegate = {
+	findUnique(args: {
+		where: { chatUserId: string };
+	}): Promise<ReviewerSettings | null>;
+	upsert(args: {
+		where: { chatUserId: string };
+		create: ReviewerSettings;
+		update: ReviewerSettings;
+	}): Promise<ReviewerSettings>;
+};
+
 type PrismaStorageClient = {
 	reviewerToken: PrismaReviewerTokenDelegate;
 	oauthState: PrismaOAuthStateDelegate;
+	reviewerSettings: PrismaReviewerSettingsDelegate;
 };
 
-export class PrismaTokenStorage implements TokenStorage {
+export class PrismaTokenStorage implements AppStorage {
 	constructor(private readonly prisma: PrismaStorageClient) {}
 
 	async get(chatUserId: string): Promise<ReviewerToken | null> {
@@ -87,9 +106,25 @@ export class PrismaTokenStorage implements TokenStorage {
 		});
 		return stateData;
 	}
+
+	async getReviewerSettings(
+		chatUserId: string,
+	): Promise<ReviewerSettings | null> {
+		return this.prisma.reviewerSettings.findUnique({
+			where: { chatUserId },
+		});
+	}
+
+	async saveReviewerSettings(settings: ReviewerSettings): Promise<void> {
+		await this.prisma.reviewerSettings.upsert({
+			where: { chatUserId: settings.chatUserId },
+			create: settings,
+			update: settings,
+		});
+	}
 }
 
-function createPrismaTokenStorage(config: AppConfig): TokenStorage {
+function createPrismaTokenStorage(config: AppConfig): AppStorage {
 	if (!prismaClient) {
 		const adapter = new PrismaPg({ connectionString: config.databaseUrl });
 		prismaClient = new PrismaClient({
@@ -156,6 +191,25 @@ function createPrismaTokenStorage(config: AppConfig): TokenStorage {
 				await prismaClient!.oAuthState.delete({ where });
 			},
 		},
+		reviewerSettings: {
+			async findUnique({ where }) {
+				const record = await prismaClient!.reviewerSettings.findUnique({
+					where,
+				});
+				if (!record) {
+					return null;
+				}
+				return mapReviewerSettingsFromDb(record);
+			},
+			async upsert({ where, create, update }) {
+				const record = await prismaClient!.reviewerSettings.upsert({
+					where,
+					create: mapReviewerSettingsForDb(create),
+					update: mapReviewerSettingsForDb(update),
+				});
+				return mapReviewerSettingsFromDb(record);
+			},
+		},
 	});
 }
 
@@ -174,5 +228,37 @@ function mapOAuthStateForDb(state: OAuthState) {
 		chatUserId: state.chatUserId,
 		expiresAt: new Date(state.expiresAt),
 		createdAt: new Date(state.createdAt),
+	};
+}
+
+function mapReviewerSettingsForDb(settings: ReviewerSettings) {
+	return {
+		chatUserId: settings.chatUserId,
+		rootFolderId: settings.rootFolderId,
+		taskCollectDaysBefore: settings.taskCollectDaysBefore,
+		taskCheckDaysBefore: settings.taskCheckDaysBefore,
+		taskPrepareDaysBefore: settings.taskPrepareDaysBefore,
+		taskReminderTime: settings.taskReminderTime,
+		updatedAt: new Date(settings.updatedAt),
+	};
+}
+
+function mapReviewerSettingsFromDb(settings: {
+	chatUserId: string;
+	rootFolderId: string;
+	taskCollectDaysBefore: number;
+	taskCheckDaysBefore: number;
+	taskPrepareDaysBefore: number;
+	taskReminderTime: string;
+	updatedAt: Date;
+}): ReviewerSettings {
+	return {
+		chatUserId: settings.chatUserId,
+		rootFolderId: settings.rootFolderId,
+		taskCollectDaysBefore: settings.taskCollectDaysBefore,
+		taskCheckDaysBefore: settings.taskCheckDaysBefore,
+		taskPrepareDaysBefore: settings.taskPrepareDaysBefore,
+		taskReminderTime: settings.taskReminderTime,
+		updatedAt: settings.updatedAt.toISOString(),
 	};
 }

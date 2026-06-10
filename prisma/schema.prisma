@@ -20,3 +20,13 @@ model OAuthState {
   expiresAt DateTime
   createdAt DateTime
 }
+
+model ReviewerSettings {
+  chatUserId             String   @id
+  rootFolderId           String
+  taskCollectDaysBefore  Int
+  taskCheckDaysBefore    Int
+  taskPrepareDaysBefore  Int
+  taskReminderTime       String
+  updatedAt              DateTime
+}

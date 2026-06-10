@@ -7,7 +7,6 @@ function setRequiredConfigEnv(): void {
 	process.env.GOOGLE_CLIENT_ID = 'client-id';
 	process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
 	process.env.GOOGLE_REDIRECT_URI = 'https://example.test/auth/google/callback';
-	process.env.REVIEWS_ROOT_FOLDER_ID = 'root-folder-id';
 	process.env.DATABASE_URL = 'postgresql://user:pass@host/db';
 	process.env.INTERNAL_REVIEW_FORM_TEMPLATE_ID = 'internal-template-id';
 	process.env.CLIENT_REVIEW_FORM_TEMPLATE_ID = 'client-template-id';
@@ -23,6 +22,19 @@ test('loadConfig reads feedback form template ids from env', () => {
 
 		assert.equal(config.internalReviewFormTemplateId, 'internal-template-id');
 		assert.equal(config.clientReviewFormTemplateId, 'client-template-id');
+	} finally {
+		process.env = previousEnv;
+	}
+});
+
+test('loadConfig does not require reviews root folder id', () => {
+	const previousEnv = { ...process.env };
+
+	try {
+		setRequiredConfigEnv();
+		delete process.env.REVIEWS_ROOT_FOLDER_ID;
+
+		assert.doesNotThrow(() => loadConfig());
 	} finally {
 		process.env = previousEnv;
 	}

@@ -10,14 +10,13 @@ MVP-сценарий реализован: `/review` запускает workflow
 
 ## Planned improvements
 
-| Priority | Area           | Task                                                                                  |
-| -------- | -------------- | ------------------------------------------------------------------------------------- |
-| P1       | Auth / Storage | [Auth storage lifecycle](tasks/auth-storage-lifecycle.md)                             |
-| P1       | Settings       | [Reviewer settings command](tasks/reviewer-settings-command.md)                       |
-| P2       | Chat UX        | [Chat output format](tasks/chat-output-format.md)                                     |
-| P2       | Calendar       | [Business days reminders](tasks/business-days-reminders.md)                           |
-| P2       | TypeScript     | [Google API types](tasks/google-types.md)                                             |
-| P2       | Data           | [Data retention](tasks/data-retention.md)                                             |
+| Priority | Area           | Task                                                        |
+| -------- | -------------- | ----------------------------------------------------------- |
+| P1       | Auth / Storage | [Auth storage lifecycle](tasks/auth-storage-lifecycle.md)   |
+| P2       | Chat UX        | [Chat output format](tasks/chat-output-format.md)           |
+| P2       | Calendar       | [Business days reminders](tasks/business-days-reminders.md) |
+| P2       | TypeScript     | [Google API types](tasks/google-types.md)                   |
+| P2       | Data           | [Data retention](tasks/data-retention.md)                   |
 
 ## На утверждении
 
@@ -27,16 +26,17 @@ MVP-сценарий реализован: `/review` запускает workflow
 
 ## Completed
 
-| Date       | Area    | Task                                                                                                        |
-| ---------- | ------- | ----------------------------------------------------------------------------------------------------------- |
-| 2026-06-08 | Docs    | [Documentation knowledge base](archive/2026-06-08-documentation-knowledge-base.md)                          |
-| 2026-06-08 | Tooling | [ESLint, Prettier, EditorConfig, Tsconfig](archive/2026-06-08-tooling-eslint-prettier-tsconfig.md)          |
-| 2026-06-08 | UX      | [Form validation UX](archive/2026-06-08-form-validation-ux.md)                                              |
-| 2026-06-09 | Forms   | [Feedback form templates shared folder](archive/2026-06-09-feedback-form-templates-shared-folder.md)        |
-| 2026-06-09 | Forms   | [Separate internal and client form access](archive/2026-06-09-client-form-public-access-template-values.md) |
-| 2026-06-10 | Forms   | [Feedback form template env vars](archive/2026-06-10-feedback-form-template-env-vars.md)                    |
-| 2026-06-10 | Drive   | [Previous review header prefill](archive/2026-06-10-previous-review-header-prefill.md)                      |
-| 2026-06-10 | Drive   | [Review report template reviewer name](archive/2026-06-10-review-report-template-reviewer-name.md)          |
+| Date       | Area     | Task                                                                                                        |
+| ---------- | -------- | ----------------------------------------------------------------------------------------------------------- |
+| 2026-06-08 | Docs     | [Documentation knowledge base](archive/2026-06-08-documentation-knowledge-base.md)                          |
+| 2026-06-08 | Tooling  | [ESLint, Prettier, EditorConfig, Tsconfig](archive/2026-06-08-tooling-eslint-prettier-tsconfig.md)          |
+| 2026-06-08 | UX       | [Form validation UX](archive/2026-06-08-form-validation-ux.md)                                              |
+| 2026-06-09 | Forms    | [Feedback form templates shared folder](archive/2026-06-09-feedback-form-templates-shared-folder.md)        |
+| 2026-06-09 | Forms    | [Separate internal and client form access](archive/2026-06-09-client-form-public-access-template-values.md) |
+| 2026-06-10 | Forms    | [Feedback form template env vars](archive/2026-06-10-feedback-form-template-env-vars.md)                    |
+| 2026-06-10 | Drive    | [Previous review header prefill](archive/2026-06-10-previous-review-header-prefill.md)                      |
+| 2026-06-10 | Drive    | [Review report template reviewer name](archive/2026-06-10-review-report-template-reviewer-name.md)          |
+| 2026-06-10 | Settings | [Reviewer settings command](archive/2026-06-10-reviewer-settings-command.md)                                |
 
 ## Правила обновления
 

@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import type { OAuthState, ReviewerToken } from './types.js';
+import type { OAuthState, ReviewerSettings, ReviewerToken } from './types.js';
 import { PrismaTokenStorage } from './storage.js';
+
+const unusedReviewerSettingsDelegate = {
+	async findUnique() {
+		throw new Error('not used');
+	},
+	async upsert() {
+		throw new Error('not used');
+	},
+};
 
 test('PrismaTokenStorage saves, gets and deletes reviewer tokens', async () => {
 	const tokens = new Map<string, ReviewerToken>();
@@ -38,6 +47,7 @@ test('PrismaTokenStorage saves, gets and deletes reviewer tokens', async () => {
 				throw new Error('not used');
 			},
 		},
+		reviewerSettings: unusedReviewerSettingsDelegate,
 	});
 
 	const token: ReviewerToken = {
@@ -80,6 +90,7 @@ test('PrismaTokenStorage consumes oauth state and deletes it', async () => {
 				oauthStates.delete(where.state);
 			},
 		},
+		reviewerSettings: unusedReviewerSettingsDelegate,
 	});
 
 	const state: OAuthState = {
@@ -92,4 +103,65 @@ test('PrismaTokenStorage consumes oauth state and deletes it', async () => {
 	await storage.saveOAuthState(state);
 	assert.deepEqual(await storage.consumeOAuthState('oauth-state'), state);
 	assert.equal(await storage.consumeOAuthState('oauth-state'), null);
+});
+
+test('PrismaTokenStorage saves and gets reviewer settings', async () => {
+	const reviewerSettings = new Map<string, ReviewerSettings>();
+	const storage = new PrismaTokenStorage({
+		reviewerToken: {
+			async findUnique() {
+				throw new Error('not used');
+			},
+			async upsert() {
+				throw new Error('not used');
+			},
+			async delete() {
+				throw new Error('not used');
+			},
+		},
+		oauthState: {
+			async create() {
+				throw new Error('not used');
+			},
+			async findUnique() {
+				throw new Error('not used');
+			},
+			async delete() {
+				throw new Error('not used');
+			},
+		},
+		reviewerSettings: {
+			async findUnique({ where }: { where: { chatUserId: string } }) {
+				return reviewerSettings.get(where.chatUserId) ?? null;
+			},
+			async upsert({
+				where,
+				create,
+				update,
+			}: {
+				where: { chatUserId: string };
+				create: ReviewerSettings;
+				update: ReviewerSettings;
+			}) {
+				const value = reviewerSettings.has(where.chatUserId) ? update : create;
+				reviewerSettings.set(where.chatUserId, value);
+				return value;
+			},
+		},
+	});
+
+	const settings: ReviewerSettings = {
+		chatUserId: 'users/123',
+		rootFolderId: 'folder-id',
+		taskCollectDaysBefore: 14,
+		taskCheckDaysBefore: 7,
+		taskPrepareDaysBefore: 3,
+		taskReminderTime: '12:00',
+		updatedAt: '2026-06-10T00:00:00.000Z',
+	};
+
+	await storage.saveReviewerSettings(settings);
+
+	assert.deepEqual(await storage.getReviewerSettings('users/123'), settings);
+	assert.equal(await storage.getReviewerSettings('users/456'), null);
 });

@@ -4,6 +4,8 @@ import type { docs_v1, drive_v3, forms_v1 } from 'googleapis';
 import type { AppConfig } from './config.js';
 import { createOAuthClient } from './oauth.js';
 
+type ReviewsRootConfig = AppConfig & { reviewsRootFolderId: string };
+
 export type CreatedFolder = {
 	id: string;
 	name: string;
@@ -199,7 +201,7 @@ type DriveResource = {
 };
 
 export async function findPreviousReviewReport(
-	config: AppConfig,
+	config: ReviewsRootConfig,
 	refreshToken: string,
 	fullName: string,
 	reviewMonth: string,
@@ -218,7 +220,7 @@ export async function findPreviousReviewReport(
 }
 
 export async function listEmployeeFolders(
-	config: AppConfig,
+	config: ReviewsRootConfig,
 	refreshToken: string,
 	query: string,
 ): Promise<EmployeeFolder[]> {
@@ -235,7 +237,7 @@ export async function listEmployeeFolders(
 }
 
 export async function findEmployeeFolder(
-	config: AppConfig,
+	config: ReviewsRootConfig,
 	refreshToken: string,
 	fullName: string,
 ): Promise<EmployeeFolder | null> {
@@ -322,8 +324,28 @@ export function isReviewMonthFolderName(name: string): boolean {
 	return /^\d{4}\.\d{2}$/.test(name);
 }
 
-export async function createReviewFolder(
+export async function validateReviewerRootFolder(
 	config: AppConfig,
+	refreshToken: string,
+	rootFolderId: string,
+): Promise<void> {
+	const auth = createOAuthClient(config);
+	auth.setCredentials({ refresh_token: refreshToken });
+
+	const drive = google.drive({ version: 'v3', auth });
+	const root = await drive.files.get({
+		fileId: rootFolderId,
+		fields: 'id,name,mimeType',
+		supportsAllDrives: true,
+	});
+
+	if (root.data.mimeType !== 'application/vnd.google-apps.folder') {
+		throw new Error('Root folder ID is not a Google Drive folder');
+	}
+}
+
+export async function createReviewFolder(
+	config: ReviewsRootConfig,
 	refreshToken: string,
 	request: ReviewFolderRequest,
 ): Promise<CreatedFolder> {
@@ -369,7 +391,7 @@ export async function createReviewFolderInDrive(
 		});
 
 		if (root.data.mimeType !== 'application/vnd.google-apps.folder') {
-			throw new Error('REVIEWS_ROOT_FOLDER_ID is not a Google Drive folder');
+			throw new Error('Reviewer root folder ID is not a Google Drive folder');
 		}
 	});
 

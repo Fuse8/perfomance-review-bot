@@ -3,7 +3,6 @@ export type AppConfig = {
 	googleClientId: string;
 	googleClientSecret: string;
 	googleRedirectUri: string;
-	reviewsRootFolderId: string;
 	chatServiceAccountKeyFile?: string;
 	chatServiceAccountCredentials?: string;
 	reviewReportTemplateId: string;
@@ -32,7 +31,6 @@ export function loadConfig(): AppConfig {
 		googleClientId: requiredEnv('GOOGLE_CLIENT_ID'),
 		googleClientSecret: requiredEnv('GOOGLE_CLIENT_SECRET'),
 		googleRedirectUri: requiredEnv('GOOGLE_REDIRECT_URI'),
-		reviewsRootFolderId: requiredEnv('REVIEWS_ROOT_FOLDER_ID'),
 		chatServiceAccountKeyFile:
 			process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE || undefined,
 		chatServiceAccountCredentials:

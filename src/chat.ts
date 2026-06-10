@@ -10,13 +10,14 @@ import {
 	createReviewFolder,
 	findEmployeeFolder,
 	findPreviousReviewReport,
+	validateReviewerRootFolder,
 	type CreatedFolder,
 } from './drive.js';
 import { sendChatMessage } from './google-chat.js';
 import { formatAuthRequiredMessage, isOAuthAuthError } from './oauth-errors.js';
 import { buildAuthUrl, getReviewerName } from './oauth.js';
 import { searchDirectoryEmployees } from './people.js';
-import type { TokenStorage } from './storage.js';
+import type { AppStorage } from './storage.js';
 import type {
 	ChatCard,
 	ChatEvent,
@@ -25,22 +26,25 @@ import type {
 	ChatParameters,
 	ChatResponse,
 	ChatSelectionItem,
+	ReviewerSettings,
 	ReviewRequest,
 } from './types.js';
 
 const SUBMIT_FUNCTION = 'submitReview';
 const SELECT_EMPLOYEE_FUNCTION = 'selectEmployee';
 const CHECK_EMPLOYEE_FOLDER_FUNCTION = 'checkEmployeeFolder';
+const SAVE_REVIEWER_SETTINGS_FUNCTION = 'saveReviewerSettings';
 const ADDED_TO_SPACE_EVENT = 'ADDED_TO_SPACE';
 const REVIEW_COMMAND_ID = 1;
 const INFO_COMMAND_ID = 2;
+const SETTINGS_COMMAND_ID = 3;
 const REVIEW_WORKFLOW_ACK_MESSAGE =
 	'Запустил подготовку PR. Результат пришлю сюда.';
 const BOT_VERSION = readBotVersion();
 
 type ReviewWorkflowParams = {
-	config: AppConfig;
-	storage: TokenStorage;
+	config: ReviewEffectiveConfig;
+	storage: AppStorage;
 	chatUserId: string;
 	event: ChatEvent;
 	refreshToken: string;
@@ -51,11 +55,21 @@ type ReviewWorkflowParams = {
 	previousReviewUrl: string;
 };
 
+type ReviewEffectiveConfig = AppConfig & { reviewsRootFolderId: string };
+
 type ReviewWorkflowResult = {
 	textLength: number;
 	remindersCount: number;
 	hasCalendar: boolean;
 };
+type ReviewerSettingsCardValues = Pick<
+	ReviewerSettings,
+	| 'rootFolderId'
+	| 'taskCollectDaysBefore'
+	| 'taskCheckDaysBefore'
+	| 'taskPrepareDaysBefore'
+	| 'taskReminderTime'
+>;
 const EMPLOYEE_SEARCH_NO_RESULTS_VALUE = '__no_results__';
 const EMPLOYEE_SEARCH_NO_RESULTS_TEXT = 'Сотрудник не найден';
 const EMPLOYEE_SEARCH_NO_RESULTS_HINT =
@@ -116,6 +130,7 @@ type ChatEventHandlerDeps = {
 	getReviewerName: typeof getReviewerName;
 	buildAuthUrl: typeof buildAuthUrl;
 	sendChatMessage: typeof sendChatMessage;
+	validateReviewerRootFolder: typeof validateReviewerRootFolder;
 };
 
 const defaultDeps: ChatEventHandlerDeps = {
@@ -128,6 +143,7 @@ const defaultDeps: ChatEventHandlerDeps = {
 	getReviewerName,
 	buildAuthUrl,
 	sendChatMessage,
+	validateReviewerRootFolder,
 };
 
 export function createChatEventHandler(
@@ -137,7 +153,7 @@ export function createChatEventHandler(
 
 	return async function handleChatEventWithDeps(
 		config: AppConfig,
-		storage: TokenStorage,
+		storage: AppStorage,
 		event: ChatEvent,
 	): Promise<ChatResponse> {
 		const chatUserId = event.user?.name ?? undefined;
@@ -200,6 +216,17 @@ export function createChatEventHandler(
 			);
 		}
 
+		if (actionName === SAVE_REVIEWER_SETTINGS_FUNCTION) {
+			logChatEvent('route.saveReviewerSettings');
+			return handleReviewerSettingsSubmit(
+				config,
+				storage,
+				chatUserId,
+				event,
+				resolvedDeps,
+			);
+		}
+
 		if (actionName === CHECK_EMPLOYEE_FOLDER_FUNCTION) {
 			logChatEvent('route.checkEmployeeFolder');
 			return handleEmployeeFolderCheck(
@@ -229,7 +256,22 @@ export function createChatEventHandler(
 					'dialog_card',
 				);
 			}
+			const settings = await storage.getReviewerSettings(chatUserId);
+			if (!settings?.rootFolderId) {
+				return textResponse(buildMissingReviewerSettingsMessage());
+			}
 			return dialogResponse(employeeLookupCard(config));
+		}
+
+		if (appCommandId === SETTINGS_COMMAND_ID) {
+			logChatEvent('route.settingsDialog');
+			return handleReviewerSettingsCommand(
+				config,
+				storage,
+				chatUserId,
+				event,
+				resolvedDeps,
+			);
 		}
 
 		logChatEvent('route.unknownCommand', { appCommandId, actionName });
@@ -241,7 +283,7 @@ export const handleChatEvent = createChatEventHandler();
 
 async function handleAddedToSpace(
 	config: AppConfig,
-	storage: TokenStorage,
+	storage: AppStorage,
 	chatUserId: string | undefined,
 	event: ChatEvent,
 	deps: ChatEventHandlerDeps,
@@ -301,13 +343,96 @@ function buildInfoMessage(): string {
 		'📋 Доступные команды',
 		'',
 		'• /review    Запустить Performance Review',
+		'• /settings  Настроить папку и задачи ревьюера',
 		'• /info         Показать информацию о боте',
 		'',
 		'🕒 Важно',
 		'',
+		'Перед /review настройте корневую папку через /settings.',
+		'Без нее запуск Performance Review недоступен.',
+		'',
 		'Все даты и время ревью, встреч и задач указываются',
 		'по челябинскому времени (UTC+5).',
 	].join('\n');
+}
+
+async function handleReviewerSettingsCommand(
+	config: AppConfig,
+	storage: AppStorage,
+	chatUserId: string,
+	event: ChatEvent,
+	deps: ChatEventHandlerDeps,
+): Promise<ChatResponse> {
+	const token = await storage.get(chatUserId);
+	if (!token) {
+		return respondReviewerAuthRequired(
+			config,
+			storage,
+			chatUserId,
+			deps,
+			event,
+			'dialog_card',
+		);
+	}
+
+	const settings = await storage.getReviewerSettings(chatUserId);
+	return dialogResponse(reviewerSettingsCard(config, settings));
+}
+
+async function handleReviewerSettingsSubmit(
+	config: AppConfig,
+	storage: AppStorage,
+	chatUserId: string,
+	event: ChatEvent,
+	deps: ChatEventHandlerDeps,
+): Promise<ChatResponse> {
+	const isDialogSubmit = event.dialogEventType === 'SUBMIT_DIALOG';
+	const token = await storage.get(chatUserId);
+	if (!token) {
+		return respondReviewerAuthRequired(
+			config,
+			storage,
+			chatUserId,
+			deps,
+			event,
+			'dialog_card',
+		);
+	}
+
+	const parsed = parseReviewerSettings(
+		chatUserId,
+		event.common?.formInputs ?? {},
+	);
+	if (!parsed.ok) {
+		return respondReviewMessage(
+			isDialogSubmit,
+			parsed.error,
+			'INVALID_ARGUMENT',
+		);
+	}
+
+	try {
+		await deps.validateReviewerRootFolder(
+			config,
+			token.refreshToken,
+			parsed.value.rootFolderId,
+		);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : 'Unknown error';
+		logChatEvent('settings.validateRootFolder.failed', { message });
+		return dialogResponse(
+			reviewerSettingsCard(config, parsed.value, {
+				error: 'Root folder ID должен быть доступной Google Drive папкой.',
+			}),
+		);
+	}
+
+	await storage.saveReviewerSettings({
+		...parsed.value,
+		updatedAt: new Date().toISOString(),
+	});
+
+	return respondReviewMessage(isDialogSubmit, 'Настройки сохранены.', 'OK');
 }
 
 function readBotVersion(): string {
@@ -320,7 +445,7 @@ function readBotVersion(): string {
 
 async function handleEmployeeSuggestions(
 	config: AppConfig,
-	storage: TokenStorage,
+	storage: AppStorage,
 	chatUserId: string | undefined,
 	event: ChatEvent,
 	deps: ChatEventHandlerDeps,
@@ -414,7 +539,7 @@ function buildEmployeeSearchSuggestions(
 
 async function handleEmployeeFolderCheck(
 	config: AppConfig,
-	storage: TokenStorage,
+	storage: AppStorage,
 	chatUserId: string,
 	event: ChatEvent,
 	deps: ChatEventHandlerDeps,
@@ -446,11 +571,20 @@ async function handleEmployeeFolderCheck(
 			'chat_message',
 		);
 	}
+	const settings = await storage.getReviewerSettings(chatUserId);
+	if (!settings?.rootFolderId) {
+		return respondReviewMessage(
+			isDialogSubmit,
+			buildMissingReviewerSettingsMessage(),
+			'INVALID_ARGUMENT',
+		);
+	}
+	const effectiveConfig = buildReviewEffectiveConfig(config, settings);
 
 	let folder;
 	try {
 		folder = await deps.findEmployeeFolder(
-			config,
+			effectiveConfig,
 			token.refreshToken,
 			manualFullName,
 		);
@@ -499,7 +633,7 @@ async function handleEmployeeFolderCheck(
 	let previousReviewUrl = '';
 	try {
 		const previousReview = await deps.findPreviousReviewReport(
-			config,
+			effectiveConfig,
 			token.refreshToken,
 			manualFullName,
 			currentMonth,
@@ -579,7 +713,7 @@ function handleEmployeeSelect(
 
 async function handleReviewSubmit(
 	config: AppConfig,
-	storage: TokenStorage,
+	storage: AppStorage,
 	chatUserId: string,
 	event: ChatEvent,
 	deps: ChatEventHandlerDeps,
@@ -624,12 +758,21 @@ async function handleReviewSubmit(
 			'dialog_card',
 		);
 	}
+	const settings = await storage.getReviewerSettings(chatUserId);
+	if (!settings?.rootFolderId) {
+		return respondReviewMessage(
+			isDialogSubmit,
+			buildMissingReviewerSettingsMessage(),
+			'INVALID_ARGUMENT',
+		);
+	}
+	const effectiveConfig = buildReviewEffectiveConfig(config, settings);
 
 	const month = formatReviewMonth(parsed.value.reviewDate);
 
 	return startReviewWorkflowFromDialog(
 		{
-			config,
+			config: effectiveConfig,
 			storage,
 			chatUserId,
 			event,
@@ -877,6 +1020,24 @@ function validateReviewConfig(config: AppConfig): string | null {
 	return null;
 }
 
+function buildReviewEffectiveConfig(
+	config: AppConfig,
+	settings: ReviewerSettings,
+): ReviewEffectiveConfig {
+	return {
+		...config,
+		reviewsRootFolderId: settings.rootFolderId,
+		taskCollectDaysBefore: settings.taskCollectDaysBefore,
+		taskCheckDaysBefore: settings.taskCheckDaysBefore,
+		taskPrepareDaysBefore: settings.taskPrepareDaysBefore,
+		taskReminderTime: settings.taskReminderTime,
+	};
+}
+
+function buildMissingReviewerSettingsMessage(): string {
+	return 'Сначала настройте /settings: укажите root folder ID для ваших Performance Review.';
+}
+
 function respondReviewMessage(
 	isDialogSubmit: boolean,
 	text: string,
@@ -953,6 +1114,86 @@ function parseReviewRequest(
 			previousReviewUrl,
 		},
 	};
+}
+
+function parseReviewerSettings(
+	chatUserId: string,
+	inputs: ChatFormInputs,
+):
+	| { ok: true; value: Omit<ReviewerSettings, 'updatedAt'> }
+	| {
+			ok: false;
+			error: string;
+	  } {
+	const rootFolderId = getStringInput(inputs.rootFolderId).trim();
+	const taskCollectDaysBefore = parseNonNegativeIntegerInput(
+		inputs.taskCollectDaysBefore,
+		'Дней до сбора отзывов',
+	);
+	const taskCheckDaysBefore = parseNonNegativeIntegerInput(
+		inputs.taskCheckDaysBefore,
+		'Дней до проверки отзывов',
+	);
+	const taskPrepareDaysBefore = parseNonNegativeIntegerInput(
+		inputs.taskPrepareDaysBefore,
+		'Дней до подготовки',
+	);
+	const taskReminderTime = getStringInput(inputs.taskReminderTime).trim();
+
+	if (!rootFolderId) {
+		return { ok: false, error: 'Укажите root folder ID.' };
+	}
+
+	if (!taskCollectDaysBefore.ok) {
+		return taskCollectDaysBefore;
+	}
+
+	if (!taskCheckDaysBefore.ok) {
+		return taskCheckDaysBefore;
+	}
+
+	if (!taskPrepareDaysBefore.ok) {
+		return taskPrepareDaysBefore;
+	}
+
+	if (!taskReminderTime) {
+		return { ok: false, error: 'Укажите время задач.' };
+	}
+
+	if (!isValidMeetingTime(taskReminderTime)) {
+		return {
+			ok: false,
+			error:
+				'Время задач должно быть в формате HH:mm, диапазон 00:00-23:59. Например: 12:00.',
+		};
+	}
+
+	return {
+		ok: true,
+		value: {
+			chatUserId,
+			rootFolderId,
+			taskCollectDaysBefore: taskCollectDaysBefore.value,
+			taskCheckDaysBefore: taskCheckDaysBefore.value,
+			taskPrepareDaysBefore: taskPrepareDaysBefore.value,
+			taskReminderTime,
+		},
+	};
+}
+
+function parseNonNegativeIntegerInput(
+	input: ChatFormInput | undefined,
+	label: string,
+): { ok: true; value: number } | { ok: false; error: string } {
+	const rawValue = getStringInput(input).trim();
+	if (!/^\d+$/.test(rawValue)) {
+		return {
+			ok: false,
+			error: `${label}: укажите целое число 0 или больше.`,
+		};
+	}
+
+	return { ok: true, value: Number(rawValue) };
 }
 
 function getStringInput(input: ChatFormInput | undefined): string {
@@ -1185,7 +1426,7 @@ type AuthRequiredResponseKind =
 
 async function respondReviewerAuthRequired(
 	config: AppConfig,
-	storage: TokenStorage,
+	storage: AppStorage,
 	chatUserId: string,
 	deps: ChatEventHandlerDeps,
 	event: ChatEvent,
@@ -1638,6 +1879,104 @@ function reviewFormCard(
 												{
 													key: 'previousReviewId',
 													value: initialValues.previousReviewId ?? '',
+												},
+											],
+										},
+									},
+								},
+							],
+						},
+					},
+				],
+			},
+		],
+	};
+}
+
+function reviewerSettingsCard(
+	config: AppConfig,
+	settings: ReviewerSettingsCardValues | null,
+	options: { error?: string } = {},
+): ChatCard {
+	return {
+		header: {
+			title: 'Настройки ревьюера',
+		},
+		sections: [
+			{
+				widgets: [
+					...(options.error
+						? [
+								{
+									textParagraph: {
+										text: options.error,
+									},
+								},
+							]
+						: []),
+					{
+						textInput: {
+							name: 'rootFolderId',
+							label: 'Root folder ID',
+							value: settings?.rootFolderId ?? '',
+						},
+					},
+					{
+						textInput: {
+							name: 'taskCollectDaysBefore',
+							label: 'Дней до сбора отзывов',
+							value: String(
+								settings?.taskCollectDaysBefore ?? config.taskCollectDaysBefore,
+							),
+						},
+					},
+					{
+						textInput: {
+							name: 'taskCheckDaysBefore',
+							label: 'Дней до проверки отзывов',
+							value: String(
+								settings?.taskCheckDaysBefore ?? config.taskCheckDaysBefore,
+							),
+						},
+					},
+					{
+						textInput: {
+							name: 'taskPrepareDaysBefore',
+							label: 'Дней до подготовки',
+							value: String(
+								settings?.taskPrepareDaysBefore ?? config.taskPrepareDaysBefore,
+							),
+						},
+					},
+					{
+						textInput: {
+							name: 'taskReminderTime',
+							label: 'Время задач (HH:mm, Челябинск)',
+							value: settings?.taskReminderTime ?? config.taskReminderTime,
+							validation: {
+								characterLimit: 5,
+							},
+						},
+					},
+					{
+						buttonList: {
+							buttons: [
+								{
+									text: 'Сохранить',
+									onClick: {
+										action: {
+											function: `${config.appBaseUrl}/google-chat/events`,
+											requiredWidgets: [
+												'rootFolderId',
+												'taskCollectDaysBefore',
+												'taskCheckDaysBefore',
+												'taskPrepareDaysBefore',
+												'taskReminderTime',
+											],
+											parameters: [
+												{
+													key: 'actionName',
+													value: SAVE_REVIEWER_SETTINGS_FUNCTION,
 												},
 											],
 										},

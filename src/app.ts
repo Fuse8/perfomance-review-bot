@@ -2,7 +2,7 @@ import express from 'express';
 import type { AppConfig } from './config.js';
 import { handleChatEvent } from './chat.js';
 import { buildAuthUrl, completeOAuth } from './oauth.js';
-import type { TokenStorage } from './storage.js';
+import type { AppStorage } from './storage.js';
 
 type AppDeps = {
 	handleChatEvent: typeof handleChatEvent;
@@ -18,7 +18,7 @@ const defaultDeps: AppDeps = {
 
 export function createApp(
 	config: AppConfig,
-	storage: TokenStorage,
+	storage: AppStorage,
 	deps: Partial<AppDeps> = {},
 ): express.Express {
 	const resolvedDeps = { ...defaultDeps, ...deps };
