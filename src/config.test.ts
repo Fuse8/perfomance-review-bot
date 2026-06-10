@@ -2,26 +2,59 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { loadConfig } from './config.js';
 
-test('loadConfig uses built-in feedback form template ids', () => {
+function setRequiredConfigEnv(): void {
+	process.env.APP_BASE_URL = 'https://example.test';
+	process.env.GOOGLE_CLIENT_ID = 'client-id';
+	process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
+	process.env.GOOGLE_REDIRECT_URI = 'https://example.test/auth/google/callback';
+	process.env.REVIEWS_ROOT_FOLDER_ID = 'root-folder-id';
+	process.env.DATABASE_URL = 'postgresql://user:pass@host/db';
+	process.env.INTERNAL_REVIEW_FORM_TEMPLATE_ID = 'internal-template-id';
+	process.env.CLIENT_REVIEW_FORM_TEMPLATE_ID = 'client-template-id';
+}
+
+test('loadConfig reads feedback form template ids from env', () => {
 	const previousEnv = { ...process.env };
 
 	try {
-		process.env.APP_BASE_URL = 'https://example.test';
-		process.env.GOOGLE_CLIENT_ID = 'client-id';
-		process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
-		process.env.GOOGLE_REDIRECT_URI =
-			'https://example.test/auth/google/callback';
-		process.env.REVIEWS_ROOT_FOLDER_ID = 'root-folder-id';
-		process.env.DATABASE_URL = 'postgresql://user:pass@host/db';
-		delete process.env.INTERNAL_REVIEW_FORM_TEMPLATE_ID;
-		delete process.env.CLIENT_REVIEW_FORM_TEMPLATE_ID;
+		setRequiredConfigEnv();
 
 		const config = loadConfig();
 
-		assert.equal(typeof config.internalReviewFormTemplateId, 'string');
-		assert.notEqual(config.internalReviewFormTemplateId, '');
-		assert.equal(typeof config.clientReviewFormTemplateId, 'string');
-		assert.notEqual(config.clientReviewFormTemplateId, '');
+		assert.equal(config.internalReviewFormTemplateId, 'internal-template-id');
+		assert.equal(config.clientReviewFormTemplateId, 'client-template-id');
+	} finally {
+		process.env = previousEnv;
+	}
+});
+
+test('loadConfig requires internal feedback form template id', () => {
+	const previousEnv = { ...process.env };
+
+	try {
+		setRequiredConfigEnv();
+		delete process.env.INTERNAL_REVIEW_FORM_TEMPLATE_ID;
+
+		assert.throws(
+			() => loadConfig(),
+			/Missing required env var: INTERNAL_REVIEW_FORM_TEMPLATE_ID/,
+		);
+	} finally {
+		process.env = previousEnv;
+	}
+});
+
+test('loadConfig requires client feedback form template id', () => {
+	const previousEnv = { ...process.env };
+
+	try {
+		setRequiredConfigEnv();
+		delete process.env.CLIENT_REVIEW_FORM_TEMPLATE_ID;
+
+		assert.throws(
+			() => loadConfig(),
+			/Missing required env var: CLIENT_REVIEW_FORM_TEMPLATE_ID/,
+		);
 	} finally {
 		process.env = previousEnv;
 	}
@@ -31,13 +64,7 @@ test('loadConfig allows missing EMPLOYEE_EMAIL_DOMAIN so the server can start', 
 	const previousEnv = { ...process.env };
 
 	try {
-		process.env.APP_BASE_URL = 'https://example.test';
-		process.env.GOOGLE_CLIENT_ID = 'client-id';
-		process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
-		process.env.GOOGLE_REDIRECT_URI =
-			'https://example.test/auth/google/callback';
-		process.env.REVIEWS_ROOT_FOLDER_ID = 'root-folder-id';
-		process.env.DATABASE_URL = 'postgresql://user:pass@host/db';
+		setRequiredConfigEnv();
 		delete process.env.REVIEW_REPORT_TEMPLATE_ID;
 		delete process.env.EMPLOYEE_EMAIL_DOMAINS;
 
@@ -53,13 +80,7 @@ test('loadConfig parses comma-separated employee email domains', () => {
 	const previousEnv = { ...process.env };
 
 	try {
-		process.env.APP_BASE_URL = 'https://example.test';
-		process.env.GOOGLE_CLIENT_ID = 'client-id';
-		process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
-		process.env.GOOGLE_REDIRECT_URI =
-			'https://example.test/auth/google/callback';
-		process.env.REVIEWS_ROOT_FOLDER_ID = 'root-folder-id';
-		process.env.DATABASE_URL = 'postgresql://user:pass@host/db';
+		setRequiredConfigEnv();
 		process.env.REVIEW_REPORT_TEMPLATE_ID = 'report-template-id';
 		process.env.EMPLOYEE_EMAIL_DOMAINS = 'fuse8.online, byteminds.co.uk';
 
@@ -78,13 +99,7 @@ test('loadConfig uses default reviewer task reminder settings', () => {
 	const previousEnv = { ...process.env };
 
 	try {
-		process.env.APP_BASE_URL = 'https://example.test';
-		process.env.GOOGLE_CLIENT_ID = 'client-id';
-		process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
-		process.env.GOOGLE_REDIRECT_URI =
-			'https://example.test/auth/google/callback';
-		process.env.REVIEWS_ROOT_FOLDER_ID = 'root-folder-id';
-		process.env.DATABASE_URL = 'postgresql://user:pass@host/db';
+		setRequiredConfigEnv();
 		delete process.env.TASK_COLLECT_DAYS_BEFORE;
 		delete process.env.TASK_CHECK_DAYS_BEFORE;
 		delete process.env.TASK_PREPARE_DAYS_BEFORE;
@@ -105,13 +120,7 @@ test('loadConfig allows missing Google Chat service account key file', () => {
 	const previousEnv = { ...process.env };
 
 	try {
-		process.env.APP_BASE_URL = 'https://example.test';
-		process.env.GOOGLE_CLIENT_ID = 'client-id';
-		process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
-		process.env.GOOGLE_REDIRECT_URI =
-			'https://example.test/auth/google/callback';
-		process.env.REVIEWS_ROOT_FOLDER_ID = 'root-folder-id';
-		process.env.DATABASE_URL = 'postgresql://user:pass@host/db';
+		setRequiredConfigEnv();
 		delete process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE;
 
 		const config = loadConfig();
@@ -126,13 +135,7 @@ test('loadConfig reads Google Chat service account key file', () => {
 	const previousEnv = { ...process.env };
 
 	try {
-		process.env.APP_BASE_URL = 'https://example.test';
-		process.env.GOOGLE_CLIENT_ID = 'client-id';
-		process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
-		process.env.GOOGLE_REDIRECT_URI =
-			'https://example.test/auth/google/callback';
-		process.env.REVIEWS_ROOT_FOLDER_ID = 'root-folder-id';
-		process.env.DATABASE_URL = 'postgresql://user:pass@host/db';
+		setRequiredConfigEnv();
 		process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE = '.data/service-account.json';
 
 		const config = loadConfig();
@@ -150,12 +153,7 @@ test('loadConfig requires database url', () => {
 	const previousEnv = { ...process.env };
 
 	try {
-		process.env.APP_BASE_URL = 'https://example.test';
-		process.env.GOOGLE_CLIENT_ID = 'client-id';
-		process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
-		process.env.GOOGLE_REDIRECT_URI =
-			'https://example.test/auth/google/callback';
-		process.env.REVIEWS_ROOT_FOLDER_ID = 'root-folder-id';
+		setRequiredConfigEnv();
 		delete process.env.DATABASE_URL;
 
 		assert.throws(() => loadConfig(), /Missing required env var: DATABASE_URL/);
@@ -168,13 +166,7 @@ test('loadConfig reads database url', () => {
 	const previousEnv = { ...process.env };
 
 	try {
-		process.env.APP_BASE_URL = 'https://example.test';
-		process.env.GOOGLE_CLIENT_ID = 'client-id';
-		process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
-		process.env.GOOGLE_REDIRECT_URI =
-			'https://example.test/auth/google/callback';
-		process.env.REVIEWS_ROOT_FOLDER_ID = 'root-folder-id';
-		process.env.DATABASE_URL = 'postgresql://user:pass@host/db';
+		setRequiredConfigEnv();
 
 		const config = loadConfig();
 
@@ -188,13 +180,7 @@ test('loadConfig reads Google service account credentials json', () => {
 	const previousEnv = { ...process.env };
 
 	try {
-		process.env.APP_BASE_URL = 'https://example.test';
-		process.env.GOOGLE_CLIENT_ID = 'client-id';
-		process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
-		process.env.GOOGLE_REDIRECT_URI =
-			'https://example.test/auth/google/callback';
-		process.env.REVIEWS_ROOT_FOLDER_ID = 'root-folder-id';
-		process.env.DATABASE_URL = 'postgresql://user:pass@host/db';
+		setRequiredConfigEnv();
 		process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS =
 			'{"client_email":"bot@example.test"}';
 

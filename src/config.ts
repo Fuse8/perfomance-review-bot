@@ -38,9 +38,10 @@ export function loadConfig(): AppConfig {
 		chatServiceAccountCredentials:
 			process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS || undefined,
 		reviewReportTemplateId: process.env.REVIEW_REPORT_TEMPLATE_ID ?? '',
-		internalReviewFormTemplateId:
-			'1Jqc9PAutgrWI-m8E1w1KAnmaCNimLimhgD8u80JFFwc',
-		clientReviewFormTemplateId: '1Jqc9PAutgrWI-m8E1w1KAnmaCNimLimhgD8u80JFFwc',
+		internalReviewFormTemplateId: requiredEnv(
+			'INTERNAL_REVIEW_FORM_TEMPLATE_ID',
+		),
+		clientReviewFormTemplateId: requiredEnv('CLIENT_REVIEW_FORM_TEMPLATE_ID'),
 		employeeEmailDomains: normalizeOptionalDomains(
 			process.env.EMPLOYEE_EMAIL_DOMAINS,
 		),
