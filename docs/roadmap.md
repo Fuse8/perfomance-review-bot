@@ -37,6 +37,7 @@ MVP-сценарий реализован: `/review` запускает workflow
 | 2026-06-10 | Drive    | [Previous review header prefill](archive/2026-06-10-previous-review-header-prefill.md)                      |
 | 2026-06-10 | Drive    | [Review report template reviewer name](archive/2026-06-10-review-report-template-reviewer-name.md)          |
 | 2026-06-10 | Settings | [Reviewer settings command](archive/2026-06-10-reviewer-settings-command.md)                                |
+| 2026-06-11 | Runtime  | [Vercel background delivery](archive/2026-06-11-vercel-background-delivery.md)                              |
 
 ## Правила обновления
 

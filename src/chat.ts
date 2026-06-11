@@ -62,6 +62,14 @@ type ReviewWorkflowResult = {
 	remindersCount: number;
 	hasCalendar: boolean;
 };
+
+type BackgroundTaskRegister = (task: () => Promise<void>) => void;
+
+export type ScheduleBackgroundTask = (
+	label: string,
+	task: () => Promise<void>,
+) => void;
+
 type ReviewerSettingsCardValues = Pick<
 	ReviewerSettings,
 	| 'rootFolderId'
@@ -131,7 +139,32 @@ type ChatEventHandlerDeps = {
 	buildAuthUrl: typeof buildAuthUrl;
 	sendChatMessage: typeof sendChatMessage;
 	validateReviewerRootFolder: typeof validateReviewerRootFolder;
+	scheduleBackgroundTask: ScheduleBackgroundTask;
 };
+
+export function createBackgroundTaskScheduler(
+	registerTask: BackgroundTaskRegister,
+): ScheduleBackgroundTask {
+	return (label, task) => {
+		logChatEvent('backgroundTask.registered', { label });
+		registerTask(async () => {
+			try {
+				await task();
+				logChatEvent('backgroundTask.success', { label });
+			} catch (error) {
+				const message =
+					error instanceof Error ? error.message : 'Unknown error';
+				logChatEvent('backgroundTask.failed', { label, message });
+			}
+		});
+	};
+}
+
+const defaultScheduleBackgroundTask = createBackgroundTaskScheduler((task) => {
+	setImmediate(() => {
+		void task();
+	});
+});
 
 const defaultDeps: ChatEventHandlerDeps = {
 	createReviewFolder,
@@ -144,6 +177,7 @@ const defaultDeps: ChatEventHandlerDeps = {
 	buildAuthUrl,
 	sendChatMessage,
 	validateReviewerRootFolder,
+	scheduleBackgroundTask: defaultScheduleBackgroundTask,
 };
 
 export function createChatEventHandler(
@@ -294,7 +328,7 @@ async function handleAddedToSpace(
 	}
 
 	const authUrl = await deps.buildAuthUrl(config, storage, chatUserId);
-	void sendInstallAuthLink(config, deps, event, authUrl);
+	await sendInstallAuthLink(config, deps, event, authUrl);
 	return textResponse(buildInfoMessage());
 }
 
@@ -787,11 +821,11 @@ async function handleReviewSubmit(
 	);
 }
 
-function startReviewWorkflowFromDialog(
+async function startReviewWorkflowFromDialog(
 	params: ReviewWorkflowParams,
 	deps: ChatEventHandlerDeps,
-): ChatResponse {
-	void sendSubmitResultToChat(
+): Promise<ChatResponse> {
+	await sendSubmitResultToChat(
 		params.config,
 		deps,
 		params.event,
@@ -811,21 +845,20 @@ function scheduleReviewWorkflow(
 		spaceName: resolveChatSpaceName(params.event),
 	});
 
-	setImmediate(() => {
-		void runReviewWorkflow(params, deps)
-			.then((result) => {
-				logChatEvent('submit.workflow.success', {
-					spaceName: resolveChatSpaceName(params.event),
-					textLength: result.textLength,
-					remindersCount: result.remindersCount,
-					hasCalendar: result.hasCalendar,
-				});
-			})
-			.catch((error) => {
-				const message =
-					error instanceof Error ? error.message : 'Unknown error';
-				logChatEvent('submit.workflow.failed', { message });
+	deps.scheduleBackgroundTask('submit.workflow', async () => {
+		try {
+			const result = await runReviewWorkflow(params, deps);
+			logChatEvent('submit.workflow.success', {
+				spaceName: resolveChatSpaceName(params.event),
+				textLength: result.textLength,
+				remindersCount: result.remindersCount,
+				hasCalendar: result.hasCalendar,
 			});
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Unknown error';
+			logChatEvent('submit.workflow.failed', { message });
+			throw error;
+		}
 	});
 }
 

@@ -1,5 +1,6 @@
 import type { Express } from 'express';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { waitUntil } from '@vercel/functions';
 
 let app: Express | null = null;
 let bootstrapError: Error | null = null;
@@ -14,11 +15,18 @@ async function getApp(): Promise<Express> {
 
 	try {
 		const { createApp } = await import('../src/app.js');
+		const { createBackgroundTaskScheduler, createChatEventHandler } =
+			await import('../src/chat.js');
 		const { loadConfig } = await import('../src/config.js');
 		const { createTokenStorage } = await import('../src/storage.js');
 		const config = loadConfig();
 		const storage = createTokenStorage(config);
-		app = createApp(config, storage);
+		const handleChatEvent = createChatEventHandler({
+			scheduleBackgroundTask: createBackgroundTaskScheduler((task) => {
+				waitUntil(task());
+			}),
+		});
+		app = createApp(config, storage, { handleChatEvent });
 		return app;
 	} catch (error) {
 		bootstrapError = error instanceof Error ? error : new Error(String(error));

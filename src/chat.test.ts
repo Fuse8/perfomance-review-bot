@@ -122,6 +122,7 @@ type ChatEventHandlerDeps = {
 		refreshToken: string,
 		rootFolderId: string,
 	) => Promise<void>;
+	scheduleBackgroundTask: (label: string, task: () => Promise<void>) => void;
 };
 
 test('/info returns bot version and review command help', async () => {
@@ -355,7 +356,7 @@ test('install event returns info and sends auth link as a second message', async
 		},
 	});
 
-	const response = await handleChatEvent(config, storage, {
+	const responsePromise = handleChatEvent(config, storage, {
 		type: 'ADDED_TO_SPACE',
 		user: {
 			name: 'users/123',
@@ -365,16 +366,19 @@ test('install event returns info and sends auth link as a second message', async
 		},
 	});
 
+	await Promise.resolve();
+	assert.equal(sendFinished, false);
+
+	releaseSend();
+	const response = await responsePromise;
+
 	assert.equal(authChatUserId, 'users/123');
 	assert.match(getResponseText(response), /^🚀 Performance Review Assistant/m);
 	assert.match(getResponseText(response), /\/review/);
 	assert.equal(sentSpaceName, 'spaces/AAA');
 	assert.match(sentText, /Подключите Google-аккаунт ревьюера/);
 	assert.match(sentText, /https:\/\/example\.test\/auth\/start/);
-	assert.equal(sendFinished, false);
-
-	releaseSend();
-	await Promise.resolve();
+	assert.equal(sendFinished, true);
 });
 
 test('install event without user returns clear error and does not build auth url', async () => {
@@ -1581,6 +1585,8 @@ test('/review submit skips result delivery when space name is missing', async ()
 test('/review submit returns ack before background workflow runs', async () => {
 	let createFolderCalled = false;
 	const sentMessages: string[] = [];
+	const scheduledTasks: Array<{ label: string; task: () => Promise<void> }> =
+		[];
 	const handleChatEvent = createHandler({
 		async createReviewFolder() {
 			createFolderCalled = true;
@@ -1593,16 +1599,56 @@ test('/review submit returns ack before background workflow runs', async () => {
 		async sendChatMessage(_config, _spaceName, text) {
 			sentMessages.push(text);
 		},
+		scheduleBackgroundTask(label, task) {
+			scheduledTasks.push({ label, task });
+		},
 	});
 
 	await handleChatEvent(config, storage, reviewSubmitEvent());
 
 	assert.equal(createFolderCalled, false);
 	assert.equal(sentMessages[0], REVIEW_WORKFLOW_ACK_MESSAGE);
+	assert.equal(scheduledTasks.length, 1);
+	assert.equal(scheduledTasks[0]?.label, 'submit.workflow');
 
-	await flushBackgroundTasks();
+	await scheduledTasks[0]?.task();
 	assert.equal(createFolderCalled, true);
 	assert.equal(sentMessages.length, 2);
+});
+
+test('/review submit waits for ack delivery before closing dialog', async () => {
+	let releaseSend: () => void = () => {};
+	const sendBlocker = new Promise<void>((resolve) => {
+		releaseSend = resolve;
+	});
+	let sendFinished = false;
+	const handleChatEvent = createHandler({
+		async sendChatMessage(_config, _spaceName, text) {
+			assert.equal(text, REVIEW_WORKFLOW_ACK_MESSAGE);
+			await sendBlocker;
+			sendFinished = true;
+		},
+		scheduleBackgroundTask() {},
+	});
+
+	const responsePromise = handleChatEvent(config, storage, reviewSubmitEvent());
+
+	await Promise.resolve();
+	assert.equal(sendFinished, false);
+
+	releaseSend();
+	const response = await responsePromise;
+
+	assert.equal(sendFinished, true);
+	assert.deepEqual(response.actionResponse, {
+		type: 'DIALOG',
+		dialogAction: {
+			actionStatus: {
+				statusCode: 'OK',
+				userFacingMessage: '',
+			},
+		},
+	});
 });
 
 test('/review submit validates employee email domain', async () => {

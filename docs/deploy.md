@@ -9,6 +9,31 @@ Vercel + Neon deploy
 - БД: Neon/Postgres через Prisma
 - локальный dev использует Docker Postgres через Prisma
 
+## Background delivery на Vercel
+
+Google Chat dialog response должен возвращаться быстро, поэтому основной
+`/review` workflow не выполняется синхронно внутри ответа. На Vercel фоновые
+Promise после возврата HTTP response ненадежны без runtime API, поэтому
+production entrypoint `api/index.ts` регистрирует длинный workflow через
+`@vercel/functions.waitUntil`.
+
+Критичные короткие сообщения отправляются до ответа handler-а:
+
+- install event ждет отправку OAuth-ссылки;
+- `/review` submit ждет ack “Запустил подготовку PR. Результат пришлю сюда.”.
+
+Длинный workflow остается асинхронным для Google Chat, но Vercel держит function
+invocation живым до завершения Promise или до `maxDuration` из `vercel.json`.
+Локальный dev не зависит от Vercel API: fallback runner использует
+`setImmediate`.
+
+Для 10-100 одновременных пользователей такой режим ожидаемо нормален: каждый
+submit создает отдельный Vercel Function invocation и отдельный `waitUntil`
+Promise. Основные лимиты при росте нагрузки — длительность Vercel Function,
+лимиты Google API и возможные ретраи Google Chat. Если workflows станут долгими,
+частыми или потребуют гарантированного retry/idempotency, следующий шаг — вынести
+их в очередь/job runner вместо `waitUntil`.
+
 ## Шаг 1. Минимальный smoke deploy
 
 Цель шага:
