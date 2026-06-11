@@ -28,5 +28,6 @@ model ReviewerSettings {
   taskCheckDaysBefore    Int
   taskPrepareDaysBefore  Int
   taskReminderTime       String
+  reviewIntervalMonths   Int      @default(6)
   updatedAt              DateTime
 }

@@ -9,6 +9,7 @@ import {
 	grantCompanyFormResponderAccess,
 	isReviewMonthFolderName,
 	listEmployeeFoldersInDrive,
+	listReviewStatusesInDrive,
 	normalizePersonName,
 	publishCopiedGoogleForm,
 	withDriveStep,
@@ -120,7 +121,7 @@ test('listEmployeeFoldersInDrive returns matching employee folders', async () =>
 	const files = {
 		async list(params: { q?: string; fields?: string; pageSize?: number }) {
 			assert.match(params.q ?? '', /root-folder-id/);
-			assert.equal(params.fields, 'files(id,name)');
+			assert.equal(params.fields, 'nextPageToken,files(id,name)');
 			assert.equal(params.pageSize, 100);
 			return {
 				data: {
@@ -952,6 +953,94 @@ test('findPreviousReviewReportInDrive returns null when no previous report exist
 	);
 
 	assert.equal(previous, null);
+});
+
+test('listReviewStatusesInDrive paginates Drive lists and returns latest reports', async () => {
+	const listCalls: string[] = [];
+	const files = {
+		async list(params: { q?: string; fields?: string; pageToken?: string }) {
+			listCalls.push(
+				params.pageToken ? `${params.q} ${params.pageToken}` : (params.q ?? ''),
+			);
+
+			if (params.q?.includes('root-folder-id') && !params.pageToken) {
+				return {
+					data: {
+						files: [{ id: 'ivan-folder-id', name: 'Ivan Petrov' }],
+						nextPageToken: 'root-page-2',
+					},
+				};
+			}
+
+			if (params.pageToken === 'root-page-2') {
+				return {
+					data: {
+						files: [{ id: 'petr-folder-id', name: 'Petr Ivanov' }],
+					},
+				};
+			}
+
+			if (params.q?.includes('ivan-folder-id')) {
+				return {
+					data: {
+						files: [
+							{ id: 'ivan-2026-01', name: '2026.01' },
+							{ id: 'ivan-2026-05', name: '2026.05' },
+						],
+					},
+				};
+			}
+
+			if (params.q?.includes('petr-folder-id')) {
+				return {
+					data: {
+						files: [{ id: 'petr-2026-02', name: '2026.02' }],
+					},
+				};
+			}
+
+			if (params.q?.includes('ivan-2026-05')) {
+				return {
+					data: {
+						files: [
+							{
+								id: 'ivan-report-id',
+								name: 'Ivan Petrov // Отчёт Performance Review // 2026-05',
+								webViewLink: 'https://docs.google.com/document/ivan-report-id',
+							},
+						],
+					},
+				};
+			}
+
+			return { data: { files: [] } };
+		},
+	};
+
+	const result = await listReviewStatusesInDrive(
+		{ files: files as never },
+		'root-folder-id',
+	);
+
+	assert.deepEqual(result.employees, [
+		{
+			employee: { id: 'ivan-folder-id', name: 'Ivan Petrov' },
+			lastReview: {
+				date: '2026-05-01',
+				report: {
+					id: 'ivan-report-id',
+					name: 'Ivan Petrov // Отчёт Performance Review // 2026-05',
+					webViewLink: 'https://docs.google.com/document/ivan-report-id',
+				},
+			},
+		},
+		{
+			employee: { id: 'petr-folder-id', name: 'Petr Ivanov' },
+			lastReview: null,
+		},
+	]);
+	assert.ok(listCalls.some((call) => call.includes('root-page-2')));
+	assert.equal(result.driveRequestCount, listCalls.length);
 });
 
 function paragraph(text: string) {

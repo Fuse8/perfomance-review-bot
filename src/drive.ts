@@ -26,6 +26,19 @@ export type EmployeeFolder = {
 	name: string;
 };
 
+export type ReviewStatusEntry = {
+	employee: EmployeeFolder;
+	lastReview: {
+		date: string;
+		report: CreatedDriveFile;
+	} | null;
+};
+
+export type ReviewStatusesResult = {
+	employees: ReviewStatusEntry[];
+	driveRequestCount: number;
+};
+
 export type ReviewFolderRequest = {
 	fullName: string;
 	employeeEmail: string;
@@ -49,6 +62,7 @@ type DriveListResource = {
 			pageSize: number;
 			supportsAllDrives: boolean;
 			includeItemsFromAllDrives: boolean;
+			pageToken?: string;
 		},
 	): Promise<{
 		data: drive_v3.Schema$FileList;
@@ -251,6 +265,18 @@ export async function findEmployeeFolder(
 		config.reviewsRootFolderId,
 		fullName,
 	);
+}
+
+export async function listReviewStatuses(
+	config: ReviewsRootConfig,
+	refreshToken: string,
+): Promise<ReviewStatusesResult> {
+	const auth = createOAuthClient(config);
+	auth.setCredentials({ refresh_token: refreshToken });
+
+	const drive = google.drive({ version: 'v3', auth });
+
+	return listReviewStatusesInDrive(drive, config.reviewsRootFolderId);
 }
 
 export async function findPreviousReviewReportInDrive(
@@ -538,20 +564,56 @@ export async function findEmployeeFolderInDrive(
 	);
 }
 
+export async function listReviewStatusesInDrive(
+	drive: DriveResource,
+	rootFolderId: string,
+): Promise<ReviewStatusesResult> {
+	let driveRequestCount = 0;
+	const countRequest = () => {
+		driveRequestCount += 1;
+	};
+	const employees = await listRootEmployeeFolders(
+		drive.files,
+		rootFolderId,
+		countRequest,
+	);
+	const statuses = await mapWithConcurrency(employees, 5, async (employee) => {
+		const lastReview = await findLatestReviewForEmployee(
+			drive.files,
+			employee,
+			countRequest,
+		);
+		return {
+			employee,
+			lastReview,
+		};
+	});
+
+	return {
+		employees: statuses,
+		driveRequestCount,
+	};
+}
+
 async function listRootEmployeeFolders(
 	files: DriveListResource,
 	rootFolderId: string,
+	onRequest?: () => void,
 ): Promise<EmployeeFolder[]> {
 	const escapedRootFolderId = escapeDriveQueryValue(rootFolderId);
-	const { data } = await files.list({
-		q: `'${escapedRootFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
-		fields: 'files(id,name)',
-		pageSize: 100,
-		supportsAllDrives: true,
-		includeItemsFromAllDrives: true,
-	});
+	const driveFiles = await listAllDriveFiles(
+		files,
+		{
+			q: `'${escapedRootFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+			fields: 'nextPageToken,files(id,name)',
+			pageSize: 100,
+			supportsAllDrives: true,
+			includeItemsFromAllDrives: true,
+		},
+		onRequest,
+	);
 
-	return (data.files ?? [])
+	return driveFiles
 		.filter((file): file is { id: string; name: string } =>
 			Boolean(file.id && file.name),
 		)
@@ -559,6 +621,127 @@ async function listRootEmployeeFolders(
 			id: file.id,
 			name: file.name,
 		}));
+}
+
+async function findLatestReviewForEmployee(
+	files: DriveListResource,
+	employee: EmployeeFolder,
+	onRequest: () => void,
+): Promise<ReviewStatusEntry['lastReview']> {
+	const escapedEmployeeFolderId = escapeDriveQueryValue(employee.id);
+	const monthFolders = (
+		await listAllDriveFiles(
+			files,
+			{
+				q: `'${escapedEmployeeFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+				fields: 'nextPageToken,files(id,name)',
+				pageSize: 100,
+				supportsAllDrives: true,
+				includeItemsFromAllDrives: true,
+			},
+			onRequest,
+		)
+	)
+		.filter(
+			(file): file is { id: string; name: string } =>
+				Boolean(file.id && file.name) && isReviewMonthFolderName(file.name!),
+		)
+		.sort((left, right) => right.name.localeCompare(left.name));
+
+	const reportNamePrefix = buildReportNamePrefix(employee.name);
+	for (const monthFolder of monthFolders) {
+		const escapedMonthFolderId = escapeDriveQueryValue(monthFolder.id);
+		const reports = await listAllDriveFiles(
+			files,
+			{
+				q: `'${escapedMonthFolderId}' in parents and mimeType = 'application/vnd.google-apps.document' and trashed = false`,
+				fields: 'nextPageToken,files(id,name,webViewLink)',
+				pageSize: 100,
+				supportsAllDrives: true,
+				includeItemsFromAllDrives: true,
+			},
+			onRequest,
+		);
+		const report = reports.find(
+			(file) =>
+				file.id &&
+				file.name &&
+				file.webViewLink &&
+				file.name.startsWith(reportNamePrefix),
+		);
+
+		if (report?.id && report.name && report.webViewLink) {
+			return {
+				date:
+					parseReviewDate(report.name) ?? parseReviewMonth(monthFolder.name),
+				report: {
+					id: report.id,
+					name: report.name,
+					webViewLink: report.webViewLink,
+				},
+			};
+		}
+	}
+
+	return null;
+}
+
+async function listAllDriveFiles(
+	files: DriveListResource,
+	params: drive_v3.Params$Resource$Files$List & {
+		q: string;
+		fields: string;
+		pageSize: number;
+		supportsAllDrives: boolean;
+		includeItemsFromAllDrives: boolean;
+	},
+	onRequest?: () => void,
+): Promise<drive_v3.Schema$File[]> {
+	const result: drive_v3.Schema$File[] = [];
+	let pageToken: string | undefined;
+
+	do {
+		onRequest?.();
+		const { data } = await files.list({
+			...params,
+			pageToken,
+		});
+		result.push(...(data.files ?? []));
+		pageToken = data.nextPageToken ?? undefined;
+	} while (pageToken);
+
+	return result;
+}
+
+async function mapWithConcurrency<T, R>(
+	items: T[],
+	concurrency: number,
+	mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+	const result = new Array<R>(items.length);
+	let nextIndex = 0;
+	const workers = Array.from(
+		{ length: Math.min(concurrency, items.length) },
+		async () => {
+			while (nextIndex < items.length) {
+				const currentIndex = nextIndex;
+				nextIndex += 1;
+				result[currentIndex] = await mapper(items[currentIndex]!);
+			}
+		},
+	);
+
+	await Promise.all(workers);
+	return result;
+}
+
+function parseReviewDate(name: string): string | null {
+	const match = name.match(/\d{4}-\d{2}/);
+	return match ? `${match[0]}-01` : null;
+}
+
+function parseReviewMonth(name: string): string {
+	return `${name.replace('.', '-')}-01`;
 }
 
 function escapeDriveQueryValue(value: string): string {

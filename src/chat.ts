@@ -10,8 +10,10 @@ import {
 	createReviewFolder,
 	findEmployeeFolder,
 	findPreviousReviewReport,
+	listReviewStatuses,
 	validateReviewerRootFolder,
 	type CreatedFolder,
+	type ReviewStatusesResult,
 } from './drive.js';
 import { sendChatMessage } from './google-chat.js';
 import { formatAuthRequiredMessage, isOAuthAuthError } from './oauth-errors.js';
@@ -38,6 +40,8 @@ const ADDED_TO_SPACE_EVENT = 'ADDED_TO_SPACE';
 const REVIEW_COMMAND_ID = 1;
 const INFO_COMMAND_ID = 2;
 const SETTINGS_COMMAND_ID = 3;
+const STATUS_COMMAND_ID = 4;
+const DEFAULT_REVIEW_INTERVAL_MONTHS = 6;
 const REVIEW_WORKFLOW_ACK_MESSAGE =
 	'Запустил подготовку PR. Результат пришлю сюда.';
 const BOT_VERSION = readBotVersion();
@@ -63,6 +67,8 @@ type ReviewWorkflowResult = {
 	hasCalendar: boolean;
 };
 
+type ReviewStatusState = 'overdue' | 'soon' | 'actual';
+
 type BackgroundTaskRegister = (task: () => Promise<void>) => void;
 
 export type ScheduleBackgroundTask = (
@@ -77,6 +83,7 @@ type ReviewerSettingsCardValues = Pick<
 	| 'taskCheckDaysBefore'
 	| 'taskPrepareDaysBefore'
 	| 'taskReminderTime'
+	| 'reviewIntervalMonths'
 >;
 const EMPLOYEE_SEARCH_NO_RESULTS_VALUE = '__no_results__';
 const EMPLOYEE_SEARCH_NO_RESULTS_TEXT = 'Сотрудник не найден';
@@ -134,12 +141,14 @@ type ChatEventHandlerDeps = {
 	createReviewerReminderEvents: typeof createReviewerReminderEvents;
 	findEmployeeFolder: typeof findEmployeeFolder;
 	findPreviousReviewReport: typeof findPreviousReviewReport;
+	listReviewStatuses: typeof listReviewStatuses;
 	searchDirectoryEmployees: typeof searchDirectoryEmployees;
 	getReviewerName: typeof getReviewerName;
 	buildAuthUrl: typeof buildAuthUrl;
 	sendChatMessage: typeof sendChatMessage;
 	validateReviewerRootFolder: typeof validateReviewerRootFolder;
 	scheduleBackgroundTask: ScheduleBackgroundTask;
+	getCurrentDate: () => Date;
 };
 
 export function createBackgroundTaskScheduler(
@@ -172,12 +181,14 @@ const defaultDeps: ChatEventHandlerDeps = {
 	createReviewerReminderEvents,
 	findEmployeeFolder,
 	findPreviousReviewReport,
+	listReviewStatuses,
 	searchDirectoryEmployees,
 	getReviewerName,
 	buildAuthUrl,
 	sendChatMessage,
 	validateReviewerRootFolder,
 	scheduleBackgroundTask: defaultScheduleBackgroundTask,
+	getCurrentDate: () => new Date(),
 };
 
 export function createChatEventHandler(
@@ -297,6 +308,17 @@ export function createChatEventHandler(
 			return dialogResponse(employeeLookupCard(config));
 		}
 
+		if (appCommandId === STATUS_COMMAND_ID) {
+			logChatEvent('route.status');
+			return handleReviewStatusCommand(
+				config,
+				storage,
+				chatUserId,
+				event,
+				resolvedDeps,
+			);
+		}
+
 		if (appCommandId === SETTINGS_COMMAND_ID) {
 			logChatEvent('route.settingsDialog');
 			return handleReviewerSettingsCommand(
@@ -377,6 +399,7 @@ function buildInfoMessage(): string {
 		'📋 Доступные команды',
 		'',
 		'• /review    Запустить Performance Review',
+		'• /status    Показать статусы ревью',
 		'• /settings  Настроить папку и задачи ревьюера',
 		'• /info         Показать информацию о боте',
 		'',
@@ -467,6 +490,62 @@ async function handleReviewerSettingsSubmit(
 	});
 
 	return respondReviewMessage(isDialogSubmit, 'Настройки сохранены.', 'OK');
+}
+
+async function handleReviewStatusCommand(
+	config: AppConfig,
+	storage: AppStorage,
+	chatUserId: string,
+	event: ChatEvent,
+	deps: ChatEventHandlerDeps,
+): Promise<ChatResponse> {
+	const token = await storage.get(chatUserId);
+	if (!token) {
+		return respondReviewerAuthRequired(
+			config,
+			storage,
+			chatUserId,
+			deps,
+			event,
+			'dialog_card',
+		);
+	}
+
+	const settings = await storage.getReviewerSettings(chatUserId);
+	if (!settings?.rootFolderId) {
+		return textResponse(buildMissingReviewerSettingsMessage());
+	}
+
+	const startedAt = Date.now();
+	const effectiveConfig = buildReviewEffectiveConfig(config, settings);
+	logChatEvent('status.start');
+	try {
+		const statuses = await deps.listReviewStatuses(
+			effectiveConfig,
+			token.refreshToken,
+		);
+		const durationMs = Date.now() - startedAt;
+		const foundReviews = statuses.employees.filter(
+			(status) => status.lastReview,
+		).length;
+		logChatEvent('status.success', {
+			employeesCount: statuses.employees.length,
+			foundReviews,
+			driveRequestCount: statuses.driveRequestCount,
+			durationMs,
+		});
+		return textResponse(
+			formatReviewStatusMessage(
+				statuses,
+				settings.reviewIntervalMonths ?? DEFAULT_REVIEW_INTERVAL_MONTHS,
+				deps.getCurrentDate(),
+			),
+		);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : 'Unknown error';
+		logChatEvent('status.failed', { message });
+		return textResponse(`Ошибка Google Drive: ${message}`);
+	}
 }
 
 function readBotVersion(): string {
@@ -1172,6 +1251,10 @@ function parseReviewerSettings(
 		'Дней до подготовки',
 	);
 	const taskReminderTime = getStringInput(inputs.taskReminderTime).trim();
+	const reviewIntervalMonths = parsePositiveIntegerInput(
+		inputs.reviewIntervalMonths,
+		'Период ревью в месяцах',
+	);
 
 	if (!rootFolderId) {
 		return { ok: false, error: 'Укажите root folder ID.' };
@@ -1187,6 +1270,10 @@ function parseReviewerSettings(
 
 	if (!taskPrepareDaysBefore.ok) {
 		return taskPrepareDaysBefore;
+	}
+
+	if (!reviewIntervalMonths.ok) {
+		return reviewIntervalMonths;
 	}
 
 	if (!taskReminderTime) {
@@ -1210,6 +1297,7 @@ function parseReviewerSettings(
 			taskCheckDaysBefore: taskCheckDaysBefore.value,
 			taskPrepareDaysBefore: taskPrepareDaysBefore.value,
 			taskReminderTime,
+			reviewIntervalMonths: reviewIntervalMonths.value,
 		},
 	};
 }
@@ -1223,6 +1311,21 @@ function parseNonNegativeIntegerInput(
 		return {
 			ok: false,
 			error: `${label}: укажите целое число 0 или больше.`,
+		};
+	}
+
+	return { ok: true, value: Number(rawValue) };
+}
+
+function parsePositiveIntegerInput(
+	input: ChatFormInput | undefined,
+	label: string,
+): { ok: true; value: number } | { ok: false; error: string } {
+	const rawValue = getStringInput(input).trim();
+	if (!/^\d+$/.test(rawValue) || Number(rawValue) < 1) {
+		return {
+			ok: false,
+			error: `${label}: укажите целое число 1 или больше.`,
 		};
 	}
 
@@ -1277,6 +1380,127 @@ function formatReviewMonth(date: string): string {
 
 function formatPreviousReviewLabel(reportName: string): string {
 	return reportName.match(/\d{4}-\d{2}|\d{4}\.\d{2}/)?.[0] ?? reportName;
+}
+
+function formatReviewStatusMessage(
+	statuses: ReviewStatusesResult,
+	reviewIntervalMonths: number,
+	currentDate: Date,
+): string {
+	const today = startOfDay(currentDate);
+	const soonThreshold = addDays(today, 30);
+	const missing = statuses.employees.filter((status) => !status.lastReview);
+	const rows = statuses.employees
+		.filter((status) => status.lastReview)
+		.map((status) => {
+			const lastReview = status.lastReview!;
+			const nextReviewDate = addMonths(
+				parseIsoDate(lastReview.date),
+				reviewIntervalMonths,
+			);
+			const state: ReviewStatusState =
+				nextReviewDate <= today
+					? 'overdue'
+					: nextReviewDate <= soonThreshold
+						? 'soon'
+						: 'actual';
+			return {
+				employeeName: status.employee.name,
+				lastReviewDate: parseIsoDate(lastReview.date),
+				nextReviewDate,
+				state,
+			};
+		})
+		.sort((left, right) => {
+			const stateOrder = { overdue: 0, soon: 1, actual: 2 };
+			const byState = stateOrder[left.state] - stateOrder[right.state];
+			if (byState !== 0) {
+				return byState;
+			}
+			return left.nextReviewDate.getTime() - right.nextReviewDate.getTime();
+		});
+
+	const summary = [
+		`🔥 просрочено: ${rows.filter((row) => row.state === 'overdue').length}`,
+		`⚠️ в ближайшие 30 дней: ${rows.filter((row) => row.state === 'soon').length}`,
+		`✅ актуально: ${rows.filter((row) => row.state === 'actual').length}`,
+	];
+	const result = [...summary];
+
+	if (missing.length) {
+		result.push(
+			'',
+			'Последнее ревью не найдено:',
+			...missing.map((status) => `- ${status.employee.name}`),
+		);
+	}
+
+	if (rows.length) {
+		const employeeColumnWidth = Math.max(
+			...rows.map((row) => row.employeeName.length),
+		);
+		result.push(
+			'',
+			'',
+			'```',
+			...rows.map((row) =>
+				formatReviewStatusRow(row, employeeColumnWidth, today),
+			),
+			'```',
+		);
+	}
+
+	return result.join('\n');
+}
+
+function formatReviewStatusRow(
+	row: {
+		employeeName: string;
+		lastReviewDate: Date;
+		nextReviewDate: Date;
+		state: ReviewStatusState;
+	},
+	employeeColumnWidth: number,
+	today: Date,
+): string {
+	const icon =
+		row.state === 'overdue' ? '🔥' : row.state === 'soon' ? '⚠️' : '✅';
+	const nextReviewText =
+		row.nextReviewDate <= today
+			? 'сейчас'
+			: formatReviewStatusMonth(row.nextReviewDate);
+	return `${icon} ${row.employeeName.padEnd(employeeColumnWidth)}  ${formatReviewStatusMonth(row.lastReviewDate)} → ${nextReviewText}`;
+}
+
+function addMonths(date: Date, months: number): Date {
+	return new Date(
+		Date.UTC(
+			date.getUTCFullYear(),
+			date.getUTCMonth() + months,
+			date.getUTCDate(),
+		),
+	);
+}
+
+function addDays(date: Date, days: number): Date {
+	return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
+}
+
+function startOfDay(date: Date): Date {
+	return new Date(
+		Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
+	);
+}
+
+function parseIsoDate(date: string): Date {
+	return new Date(`${date}T00:00:00.000Z`);
+}
+
+function formatReviewStatusMonth(date: Date): string {
+	return [
+		String(date.getUTCMonth() + 1).padStart(2, '0'),
+		date.getUTCFullYear(),
+	].join('.');
 }
 
 function formatReviewSuccessMessage(
@@ -1992,6 +2216,16 @@ function reviewerSettingsCard(
 						},
 					},
 					{
+						textInput: {
+							name: 'reviewIntervalMonths',
+							label: 'Периодичность ревью (месяцы)',
+							value: String(
+								settings?.reviewIntervalMonths ??
+									DEFAULT_REVIEW_INTERVAL_MONTHS,
+							),
+						},
+					},
+					{
 						buttonList: {
 							buttons: [
 								{
@@ -2005,6 +2239,7 @@ function reviewerSettingsCard(
 												'taskCheckDaysBefore',
 												'taskPrepareDaysBefore',
 												'taskReminderTime',
+												'reviewIntervalMonths',
 											],
 											parameters: [
 												{

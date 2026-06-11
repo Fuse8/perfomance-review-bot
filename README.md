@@ -67,11 +67,14 @@ In Google Chat API settings:
   - Name: `/settings`
   - Command ID: `3`
   - Enable **Opens dialog** if available in the configuration UI.
+- Review status slash command:
+  - Name: `/status`
+  - Command ID: `4`
 - Info slash command:
   - Name: `/info`
   - Command ID: `2`
 
-Each reviewer must run `/settings` and set a Google Drive root folder ID before `/review` can start.
+Each reviewer must run `/settings` and set a Google Drive root folder ID before `/review` or `/status` can start.
 
 ## Documentation
 

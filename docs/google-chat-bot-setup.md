@@ -48,6 +48,11 @@ Opens dialog: enabled
 ```
 
 ```text
+Name: /status
+Command ID: 4
+```
+
+```text
 Name: /info
 Command ID: 2
 ```

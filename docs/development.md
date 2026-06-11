@@ -1,4 +1,4 @@
-# Local development
+# Development
 
 1. Установить зависимости `pnpm install`
 2. `pnpm tunnel`

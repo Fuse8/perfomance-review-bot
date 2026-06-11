@@ -21,6 +21,7 @@ export type ReviewerSettings = {
 	taskCheckDaysBefore: number;
 	taskPrepareDaysBefore: number;
 	taskReminderTime: string;
+	reviewIntervalMonths: number;
 	updatedAt: string;
 };
 

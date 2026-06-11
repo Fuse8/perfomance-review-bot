@@ -54,6 +54,7 @@ const storage = {
 			taskCheckDaysBefore: 7,
 			taskPrepareDaysBefore: 3,
 			taskReminderTime: '12:00',
+			reviewIntervalMonths: 6,
 			updatedAt: '2026-06-10T00:00:00.000Z',
 		};
 	},
@@ -103,6 +104,15 @@ function createHandler(overrides: Partial<ChatEventHandlerDeps> = {}) {
 			return 'reviewer@example.test';
 		},
 		async validateReviewerRootFolder() {},
+		async listReviewStatuses() {
+			return {
+				employees: [],
+				driveRequestCount: 0,
+			};
+		},
+		getCurrentDate() {
+			return new Date('2026-06-11T00:00:00.000Z');
+		},
 		...overrides,
 	});
 }
@@ -112,6 +122,7 @@ type ChatEventHandlerDeps = {
 	createCalendarEvent: typeof import('./calendar.js').createCalendarEvent;
 	createReviewerReminderEvents: typeof import('./calendar.js').createReviewerReminderEvents;
 	findPreviousReviewReport: typeof import('./drive.js').findPreviousReviewReport;
+	listReviewStatuses: typeof import('./drive.js').listReviewStatuses;
 	findEmployeeFolder: typeof import('./drive.js').findEmployeeFolder;
 	searchDirectoryEmployees: typeof import('./people.js').searchDirectoryEmployees;
 	getReviewerName: typeof import('./oauth.js').getReviewerName;
@@ -123,6 +134,7 @@ type ChatEventHandlerDeps = {
 		rootFolderId: string,
 	) => Promise<void>;
 	scheduleBackgroundTask: (label: string, task: () => Promise<void>) => void;
+	getCurrentDate: () => Date;
 };
 
 test('/info returns bot version and review command help', async () => {
@@ -137,7 +149,7 @@ test('/info returns bot version and review command help', async () => {
 	const text = getResponseText(response);
 	assert.match(
 		text,
-		/^🚀 Performance Review Assistant\n\nВерсия: v\d+\.\d+\.\d+\n\n────────────────────────────────────\n\n📋 Доступные команды\n\n• \/review {4}Запустить Performance Review\n• \/settings {2}Настроить папку и задачи ревьюера\n• \/info {9}Показать информацию о боте\n\n🕒 Важно\n\nПеред \/review настройте корневую папку через \/settings\.\nБез нее запуск Performance Review недоступен\.\n\nВсе даты и время ревью, встреч и задач указываются\nпо челябинскому времени \(UTC\+5\)\.$/,
+		/^🚀 Performance Review Assistant\n\nВерсия: v\d+\.\d+\.\d+\n\n────────────────────────────────────\n\n📋 Доступные команды\n\n• \/review {4}Запустить Performance Review\n• \/status {4}Показать статусы ревью\n• \/settings {2}Настроить папку и задачи ревьюера\n• \/info {9}Показать информацию о боте\n\n🕒 Важно\n\nПеред \/review настройте корневую папку через \/settings\.\nБез нее запуск Performance Review недоступен\.\n\nВсе даты и время ревью, встреч и задач указываются\nпо челябинскому времени \(UTC\+5\)\.$/,
 	);
 	assert.doesNotMatch(text, /\/check-auth/);
 });
@@ -221,6 +233,7 @@ test('/settings opens dialog with default values', async () => {
 		taskCheckDaysBefore: '7',
 		taskPrepareDaysBefore: '3',
 		taskReminderTime: '12:00',
+		reviewIntervalMonths: '6',
 	});
 });
 
@@ -249,6 +262,7 @@ test('/settings saves validated reviewer settings', async () => {
 			taskCheckDaysBefore: '5',
 			taskPrepareDaysBefore: '1',
 			taskReminderTime: '09:30',
+			reviewIntervalMonths: '9',
 		}),
 	);
 
@@ -263,6 +277,7 @@ test('/settings saves validated reviewer settings', async () => {
 		taskCheckDaysBefore: 5,
 		taskPrepareDaysBefore: 1,
 		taskReminderTime: '09:30',
+		reviewIntervalMonths: 9,
 		updatedAt: settings.updatedAt,
 	});
 	assert.match(settings.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
@@ -292,6 +307,7 @@ test('/settings rejects invalid values before saving', async () => {
 			taskCheckDaysBefore: 'abc',
 			taskPrepareDaysBefore: '3',
 			taskReminderTime: '25:00',
+			reviewIntervalMonths: '0',
 		}),
 	);
 
@@ -324,6 +340,7 @@ test('/settings keeps dialog open when root folder is not valid', async () => {
 			taskCheckDaysBefore: '5',
 			taskPrepareDaysBefore: '1',
 			taskReminderTime: '09:30',
+			reviewIntervalMonths: '6',
 		}),
 	);
 	const card = getUpdatedCard(response);
@@ -723,6 +740,92 @@ test('/review without reviewer settings asks to run settings first', async () =>
 	assert.match(getResponseText(response), /Сначала настройте \/settings/);
 });
 
+test('/status without reviewer settings asks to run settings first', async () => {
+	const settingsStorage = {
+		...storage,
+		async getReviewerSettings() {
+			return null;
+		},
+	};
+	const handleChatEvent = createHandler({
+		async listReviewStatuses() {
+			throw new Error('should not list review statuses without settings');
+		},
+	});
+
+	const response = await handleChatEvent(
+		config,
+		settingsStorage,
+		statusCommandEvent(),
+	);
+
+	assert.match(getResponseText(response), /Сначала настройте \/settings/);
+});
+
+test('/status returns summary, missing reviews and sorted aligned rows', async () => {
+	const handleChatEvent = createHandler({
+		async listReviewStatuses(_config, refreshToken) {
+			assert.equal(refreshToken, 'refresh-token');
+			return {
+				driveRequestCount: 7,
+				employees: [
+					{
+						employee: { id: 'petr-folder-id', name: 'Petr Petrov' },
+						lastReview: {
+							date: '2026-02-01',
+							report: {
+								id: 'petr-report-id',
+								name: 'Petr Petrov // Отчёт Performance Review // 2026-02',
+								webViewLink: 'https://docs.google.com/document/petr-report-id',
+							},
+						},
+					},
+					{
+						employee: { id: 'no-review-folder-id', name: 'No Review' },
+						lastReview: null,
+					},
+					{
+						employee: { id: 'ivan-folder-id', name: 'Ivan Ivanov' },
+						lastReview: {
+							date: '2025-12-20',
+							report: {
+								id: 'ivan-report-id',
+								name: 'Ivan Ivanov // Отчёт Performance Review // 2025-12',
+								webViewLink: 'https://docs.google.com/document/ivan-report-id',
+							},
+						},
+					},
+					{
+						employee: { id: 'dmitry-folder-id', name: 'Dmitry Berdnikov' },
+						lastReview: {
+							date: '2025-12-01',
+							report: {
+								id: 'dmitry-report-id',
+								name: 'Dmitry Berdnikov // Отчёт Performance Review // 2025-12',
+								webViewLink:
+									'https://docs.google.com/document/dmitry-report-id',
+							},
+						},
+					},
+				],
+			};
+		},
+	});
+
+	const response = await handleChatEvent(config, storage, statusCommandEvent());
+	const text = getResponseText(response);
+
+	assert.match(text, /🔥 просрочено: 1/);
+	assert.match(text, /⚠️ в ближайшие 30 дней: 1/);
+	assert.match(text, /✅ актуально: 1/);
+	assert.match(text, /Последнее ревью не найдено:\n- No Review/);
+	assert.match(
+		text,
+		/\n\n```\n🔥 Dmitry Berdnikov {2}12\.2025 → сейчас\n⚠️ Ivan Ivanov\s+12\.2025 → 06\.2026\n✅ Petr Petrov\s+02\.2026 → 08\.2026\n```/,
+	);
+	assert.doesNotMatch(text, /🔥 — ревью просрочено/);
+});
+
 test('/review uses reviewer settings for root folder and reminders', async () => {
 	const sentMessages: Array<{ spaceName: string; text: string }> = [];
 	const settingsStorage = {
@@ -735,6 +838,7 @@ test('/review uses reviewer settings for root folder and reminders', async () =>
 				taskCheckDaysBefore: 5,
 				taskPrepareDaysBefore: 1,
 				taskReminderTime: '09:30',
+				reviewIntervalMonths: 6,
 				updatedAt: '2026-06-10T00:00:00.000Z',
 			};
 		},
@@ -1950,12 +2054,24 @@ function settingsCommandEvent(): ChatEvent {
 	};
 }
 
+function statusCommandEvent(): ChatEvent {
+	return {
+		user: {
+			name: 'users/123',
+		},
+		appCommandMetadata: {
+			appCommandId: 4,
+		},
+	};
+}
+
 function settingsSubmitEvent(overrides: {
 	rootFolderId?: string;
 	taskCollectDaysBefore?: string;
 	taskCheckDaysBefore?: string;
 	taskPrepareDaysBefore?: string;
 	taskReminderTime?: string;
+	reviewIntervalMonths?: string;
 }): ChatEvent {
 	return {
 		user: {
@@ -1992,6 +2108,11 @@ function settingsSubmitEvent(overrides: {
 				taskReminderTime: {
 					stringInputs: {
 						value: [overrides.taskReminderTime ?? '12:00'],
+					},
+				},
+				reviewIntervalMonths: {
+					stringInputs: {
+						value: [overrides.reviewIntervalMonths ?? '6'],
 					},
 				},
 			},

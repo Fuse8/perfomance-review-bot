@@ -239,6 +239,7 @@ function mapReviewerSettingsForDb(settings: ReviewerSettings) {
 		taskCheckDaysBefore: settings.taskCheckDaysBefore,
 		taskPrepareDaysBefore: settings.taskPrepareDaysBefore,
 		taskReminderTime: settings.taskReminderTime,
+		reviewIntervalMonths: settings.reviewIntervalMonths,
 		updatedAt: new Date(settings.updatedAt),
 	};
 }
@@ -250,6 +251,7 @@ function mapReviewerSettingsFromDb(settings: {
 	taskCheckDaysBefore: number;
 	taskPrepareDaysBefore: number;
 	taskReminderTime: string;
+	reviewIntervalMonths: number;
 	updatedAt: Date;
 }): ReviewerSettings {
 	return {
@@ -259,6 +261,7 @@ function mapReviewerSettingsFromDb(settings: {
 		taskCheckDaysBefore: settings.taskCheckDaysBefore,
 		taskPrepareDaysBefore: settings.taskPrepareDaysBefore,
 		taskReminderTime: settings.taskReminderTime,
+		reviewIntervalMonths: settings.reviewIntervalMonths,
 		updatedAt: settings.updatedAt.toISOString(),
 	};
 }
