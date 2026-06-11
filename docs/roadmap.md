@@ -39,6 +39,7 @@ MVP-сценарий реализован: `/review` запускает workflow
 | 2026-06-10 | Settings | [Reviewer settings command](archive/2026-06-10-reviewer-settings-command.md)                                |
 | 2026-06-11 | Runtime  | [Vercel background delivery](archive/2026-06-11-vercel-background-delivery.md)                              |
 | 2026-06-11 | Chat UX  | [Review status command](archive/2026-06-11-review-status-command.md)                                        |
+| 2026-06-11 | Docs     | [Development workflow document](archive/2026-06-11-development-workflow-document.md)                        |
 
 ## Правила обновления
 
