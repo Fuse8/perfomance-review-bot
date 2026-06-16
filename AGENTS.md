@@ -19,7 +19,7 @@ Core project information, technology stack, environment configuration, and avail
 - Task files should include Problem, Desired Behavior, Current Context, Plan, Tests, Risks, and Result.
 - Keep `docs/roadmap.md` short: active task links in Planned improvements, completed task links in Completed.
 - After finishing a task, wait for user review. If review requests changes, implement them.
-- If the user says the task is done, fill `Result`, move the task document to `docs/archive/`, remove it from Planned improvements, and add it to Completed.
+- If the user says the task is done, fill `Result`, move the task document to `docs/archive/` with date prefix (format: `YYYY-MM-DD-task-name.md`), remove it from Planned improvements, and add it to Completed.
 - When archiving a task, update `docs/adr.md` if the task introduced a durable technical or product decision.
 
 ## Change policy
