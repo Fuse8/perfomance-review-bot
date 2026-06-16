@@ -14,7 +14,6 @@ MVP-сценарий реализован: `/review` запускает workflow
 | -------- | -------------- | ----------------------------------------------------------- |
 | P1       | Auth / Storage | [Auth storage lifecycle](tasks/auth-storage-lifecycle.md)   |
 | P2       | Chat UX        | [Chat output format](tasks/chat-output-format.md)           |
-| P2       | Calendar       | [Business days reminders](tasks/business-days-reminders.md) |
 | P2       | TypeScript     | [Google API types](tasks/google-types.md)                   |
 | P2       | Data           | [Data retention](tasks/data-retention.md)                   |
 
@@ -40,6 +39,7 @@ MVP-сценарий реализован: `/review` запускает workflow
 | 2026-06-11 | Runtime  | [Vercel background delivery](archive/2026-06-11-vercel-background-delivery.md)                              |
 | 2026-06-11 | Chat UX  | [Review status command](archive/2026-06-11-review-status-command.md)                                        |
 | 2026-06-11 | Docs     | [Development workflow document](archive/2026-06-11-development-workflow-document.md)                        |
+| 2026-06-16 | Calendar | [Business days reminders](archive/2026-06-16-business-days-reminders.md)                                    |
 
 ## Правила обновления
 
