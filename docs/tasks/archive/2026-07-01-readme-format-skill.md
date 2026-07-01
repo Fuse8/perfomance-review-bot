@@ -33,4 +33,4 @@
 
 ## Result
 
-Добавлен канонический skill README/docs structure. README приведен к короткому входному формату, справочные детали вынесены в `docs/architecture.md` и `docs/testing.md`, индекс документации обновлен.
+Добавлен канонический skill README/docs structure. README приведен к короткому входному формату, справочные детали вынесены в `docs/architecture.md` и `docs/testing.md`, индекс документации обновлен. Отдельный `docs/README.md` удален, корневой `README.md` стал единственной входной точкой документации.
