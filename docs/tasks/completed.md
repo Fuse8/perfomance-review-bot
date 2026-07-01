@@ -15,6 +15,7 @@
 - 2026-06-11 Chat UX: [Review status command](archive/2026-06-11-review-status-command.md)
 - 2026-06-11 Docs: [Development workflow document](archive/2026-06-11-development-workflow-document.md)
 - 2026-06-16 Calendar: [Business days reminders](archive/2026-06-16-business-days-reminders.md)
+- 2026-07-01 Forms: [Forms response spreadsheets](archive/2026-07-01-forms-response-spreadsheets.md)
 - 2026-07-01 Chat UX: [Chat commands info timezone](archive/2026-07-01-chat-commands-info-timezone.md)
 - 2026-07-01 Docs: [Docs task archive structure](archive/2026-07-01-docs-task-archive-structure.md)
 - 2026-07-01 Workflow: [AI tools workflow adapters](archive/2026-07-01-ai-tools-rules-skill.md)

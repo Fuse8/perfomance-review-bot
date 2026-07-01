@@ -22,7 +22,7 @@ MVP-сценарий реализован: `/review` запускает workflow
 
 ## На утверждении
 
-- 2026-06-10 Forms: [Forms response spreadsheets](tasks/forms-response-spreadsheets.md) — `codex/forms-response-spreadsheets`, сделано, зафиксировано, ожидает merge.
+Нет задач на утверждении.
 
 ## Правила обновления
 
