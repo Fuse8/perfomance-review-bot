@@ -29,3 +29,4 @@
 - `AGENTS.md` остается canonical source для project workflow.
 - Reusable AI workflows хранятся в `.agents/skills/*/SKILL.md`.
 - Tool-specific adapters, например `.cursor/rules/*.mdc`, должны быть короткими и ссылаться на canonical skill без дублирования тела инструкций.
+- README должен оставаться коротким входом в проект, а справочные детали должны жить в `docs/`.

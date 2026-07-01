@@ -1,84 +1,65 @@
 # Performance Review Bot
 
-A Google Chat bot for managing a performance review workflow.
+Google Chat бот для автоматизации создания документов и встреч performance review.
 
-It's standalone chat bot, not add-on.
+## Требования
 
-Basic flow: the `/review` command opens a form. After submission, the bot creates a Google Drive folder named `{First Name Last Name} // YYYY.MM` with files for performance review and returns a link to it. Also it creates meetings and tasks in Google Calendar.
+- Node.js `24.x`
+- pnpm `11.5.1`
+- Docker для локального PostgreSQL
+- ngrok или другой HTTPS tunnel для локальной проверки Google Chat
 
-## Tech Stack
+## Быстрый старт
 
-- TypeScript
-- Node.js
-- Express (development)
-- Google Chat API
-- Google OAuth 2.0
-- Google Drive / Docs / Calendar / People / Forms APIs
-- Prisma
-- Neon / PostgreSQL
+1. Установить зависимости:
+
+```bash
+pnpm install
+```
+
+2. Создать `.env` на основе `.env.example` и заполнить локальные значения.
+
+3. Запустить локальную БД и применить миграции:
+
+```bash
+pnpm db:local
+pnpm prisma:migrate:dev
+```
+
+4. Запустить приложение:
+
+```bash
+pnpm dev
+```
+
+Подробная локальная настройка описана в [docs/development.md](docs/development.md).
+Настройка Google Chat app описана в
+[docs/google-chat-bot-setup.md](docs/google-chat-bot-setup.md).
+
+## Стек
+
+- TypeScript, Node.js, Express
+- Google Chat API, OAuth 2.0, Drive, Docs, Forms, Calendar, People APIs
+- Prisma, PostgreSQL, Neon
 - Vercel
 
-## Implemented Features
+## Основные команды
 
-- Express webhook for Google Chat: `POST /google-chat/events`
-- Reviewer authentication via Google OAuth
-- Sending messages to Google Chat on behalf of the bot using a service account
-- Refresh token storage via Prisma/PostgreSQL
-- Google Drive folder creation and document management via Drive / Docs APIs
-- Calendar, People, and Forms API integrations
-- Health check endpoint: `GET /healthz`
-- Vercel entry point: `api/index.ts`
+- `pnpm dev` - запустить локальный сервер
+- `pnpm db:local` - поднять локальный PostgreSQL
+- `pnpm tunnel` - запустить ngrok tunnel на `8080`
+- `pnpm prisma:migrate:dev` - применить локальные миграции
+- `pnpm prisma:migrate:deploy` - применить production-миграции
+- `pnpm format` - отформатировать проект
+- `pnpm eslint:fix` - исправить lint-ошибки
+- `pnpm type-check` - проверить TypeScript
+- `pnpm test:quiet` - запустить тесты
 
-## Key Files
+## Документация
 
-- `src/app.ts` — Express app and routes
-- `src/server.ts` — Local server entry point
-- `src/chat.ts` — Main Google Chat workflow
-- `src/oauth.ts` — Reviewer OAuth flow
-- `src/google-chat.ts` — Message delivery via bot authentication
-- `src/drive.ts` — Drive / Docs / Forms logic
-- `src/calendar.ts` — Calendar meetings and reminders
-- `src/people.ts` — Employee lookup
-- `src/storage.ts` — Storage abstraction and implementations
-- `prisma/schema.prisma` — Database schema
-
-## Commands
-
-- Install: `pnpm install`
-- Local database: `pnpm db:local`
-- Development: `pnpm dev`
-- Test: `pnpm test:quiet`
-- Prisma generate: `pnpm prisma:generate`
-- Prisma migrate (development): `pnpm prisma:migrate:dev`
-- Prisma migrate (production): `pnpm prisma:migrate:deploy`
-
-## Google Chat App Configuration
-
-For full setup instructions, see [docs/google-chat-bot-setup.md](docs/google-chat-bot-setup.md).
-
-In Google Chat API settings:
-
-- App URL: `https://<url>/google-chat/events`
-- Slash command:
-  - Name: `/review`
-  - Command ID: `1`
-  - Enable **Opens dialog** if available in the configuration UI.
-- Reviewer settings slash command:
-  - Name: `/settings`
-  - Command ID: `3`
-  - Enable **Opens dialog** if available in the configuration UI.
-- Review status slash command:
-  - Name: `/status`
-  - Command ID: `4`
-- Info slash command:
-  - Name: `/info`
-  - Command ID: `2`
-
-Each reviewer must run `/settings` and set a Google Drive root folder ID before `/review` or `/status` can start.
-
-## Documentation
-
-- Documentation guide: [docs/README.md](docs/README.md)
-- Roadmap: [docs/roadmap.md](docs/roadmap.md)
-- Product specification: [docs/product-spec.md](docs/product-spec.md)
-- Deployment guide: [docs/deploy.md](docs/deploy.md)
+- [docs/architecture.md](docs/architecture.md) - архитектура и ключевые модули
+- [docs/development.md](docs/development.md) - локальная разработка
+- [docs/deploy.md](docs/deploy.md) - деплой на Vercel + Neon
+- [docs/testing.md](docs/testing.md) - проверки и тесты
+- [docs/product-spec.md](docs/product-spec.md) - продуктовая спецификация
+- [docs/roadmap.md](docs/roadmap.md) - активные задачи
