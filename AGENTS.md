@@ -11,15 +11,16 @@ Core project information, technology stack, environment configuration, and avail
 - Do not commit real Google Drive, Docs, Forms, Calendar, or other external
   resource IDs into code, env examples, or docs; use placeholders instead.
 - When starting a task, first create an explicit plan and wait for user approval before implementation.
-- After all requested work is done and verified, ask the user before staging files. Create a git commit only after the user confirms.
+- After all requested work is done and verified, ask the user before staging files. Create a git commit only after the user confirms, except when the task is already in review and the user says the task is ready.
 
 ## Task workflow
 
 - Active tasks live in `docs/tasks/` and must be linked from `docs/roadmap.md`.
 - Task files should include Problem, Desired Behavior, Current Context, Plan, Tests, Risks, and Result.
-- Keep `docs/roadmap.md` short: active task links in Planned improvements, completed task links in Completed.
+- Keep `docs/roadmap.md` short: active task links in Planned improvements, completed task links in `docs/tasks/completed.md`.
 - After finishing a task, wait for user review. If review requests changes, implement them.
-- If the user says the task is done, fill `Result`, move the task document to `docs/archive/` with date prefix (format: `YYYY-MM-DD-task-name.md`), remove it from Planned improvements, and add it to Completed.
+- If the user says the task is done, fill `Result`, move the task document to `docs/tasks/archive/` with date prefix (format: `YYYY-MM-DD-task-name.md`), remove it from Planned improvements, and add it to `docs/tasks/completed.md`.
+- If the task is in review and the user says the task is ready, stage all files for the current task and create a git commit using the archived task filename as the commit message. Do not include unrelated changes.
 - When archiving a task, update `docs/adr.md` if the task introduced a durable technical or product decision.
 
 ## Change policy

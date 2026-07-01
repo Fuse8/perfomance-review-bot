@@ -6,7 +6,7 @@
 
 ## Desired Behavior
 
-Актуальные задачи должны жить в `docs/tasks/`, завершенные задачи - в `docs/archive/tasks/`, старые большие планы - в `docs/archive/plans/`. `docs/roadmap.md` должен оставаться коротким входом в текущие направления работ.
+Актуальные задачи должны жить в `docs/tasks/`, завершенные задачи - в `docs/tasks/archive/`. `docs/roadmap.md` должен оставаться коротким входом в текущие направления работ.
 
 ## Current Context
 
@@ -32,7 +32,7 @@
 
 ## Result
 
-- Перенесен старый `PLAN.md` в `docs/archive/plans/2026-06-08-mvp-implementation-plan.md`.
+- Перенесен старый `PLAN.md` в `docs/tasks/archive/2026-06-08-mvp-implementation-plan.md`.
 - Добавлен новый вход в планирование: `docs/roadmap.md`.
 - Добавлены task-файлы для текущих направлений доработки.
 - Добавлены `docs/README.md`, `docs/decisions.md` и архивный README.
