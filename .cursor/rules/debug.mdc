@@ -1,0 +1,6 @@
+---
+description: Use when debugging, investigating an error, finding a root cause, or when the user says debug.
+alwaysApply: false
+---
+
+Read and follow .agents/skills/debug/SKILL.md.

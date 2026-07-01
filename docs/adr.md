@@ -23,3 +23,9 @@
 - Vercel background jobs запускаются через `waitUntil()`, локально используется fallback на `setImmediate`.
 - Не использовать `void promise` для важных операций после HTTP response, потому что serverless runtime может остановить выполнение.
 - Slash commands должны гарантировать первый важный ответ пользователю до завершения handler.
+
+2026-07-01
+
+- `AGENTS.md` остается canonical source для project workflow.
+- Reusable AI workflows хранятся в `.agents/skills/*/SKILL.md`.
+- Tool-specific adapters, например `.cursor/rules/*.mdc`, должны быть короткими и ссылаться на canonical skill без дублирования тела инструкций.

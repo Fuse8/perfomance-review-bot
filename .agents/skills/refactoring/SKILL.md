@@ -40,15 +40,19 @@ For planning:
 
 ```md
 Current behavior to preserve:
+
 - ...
 
 Refactoring targets:
+
 - ...
 
 Plan:
+
 - ...
 
 Verification:
+
 - ...
 ```
 

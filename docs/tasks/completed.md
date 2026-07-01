@@ -18,3 +18,4 @@
 | 2026-06-11 | Docs     | [Development workflow document](archive/2026-06-11-development-workflow-document.md)                        |
 | 2026-06-16 | Calendar | [Business days reminders](archive/2026-06-16-business-days-reminders.md)                                    |
 | 2026-07-01 | Docs     | [Docs task archive structure](archive/2026-07-01-docs-task-archive-structure.md)                            |
+| 2026-07-01 | Workflow | [AI tools workflow adapters](archive/2026-07-01-ai-tools-rules-skill.md)                                    |

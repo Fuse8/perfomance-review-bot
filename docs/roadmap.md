@@ -11,18 +11,17 @@ MVP-сценарий реализован: `/review` запускает workflow
 
 ## Planned improvements
 
-| Priority | Area           | Task                                                                    |
-| -------- | -------------- | ----------------------------------------------------------------------- |
-| P1       | Auth / Storage | [Auth storage lifecycle](tasks/auth-storage-lifecycle.md)               |
-| P1       | Drive          | [Reviewer Drive folder link](tasks/reviewer-drive-folder-link.md)       |
-| P1       | Drive          | [Employee folder auto create](tasks/employee-folder-auto-create.md)     |
-| P2       | Chat UX        | [Intuitive bot instructions](tasks/intuitive-bot-instructions.md)       |
-| P2       | Chat UX        | [Chat output format](tasks/chat-output-format.md)                       |
-| P2       | Documentation  | [README format skill](tasks/readme-format-skill.md)                     |
-| P2       | Workflow       | [AI tools rules skill](tasks/ai-tools-rules-skill.md)                   |
-| P2       | Code Quality   | [Codebase refactoring](tasks/codebase-refactoring.md)                   |
-| P2       | TypeScript     | [Google API types](tasks/google-types.md)                               |
-| P2       | Data           | [Data retention](tasks/data-retention.md)                               |
+| Priority | Area           | Task                                                                |
+| -------- | -------------- | ------------------------------------------------------------------- |
+| P1       | Auth / Storage | [Auth storage lifecycle](tasks/auth-storage-lifecycle.md)           |
+| P1       | Drive          | [Reviewer Drive folder link](tasks/reviewer-drive-folder-link.md)   |
+| P1       | Drive          | [Employee folder auto create](tasks/employee-folder-auto-create.md) |
+| P2       | Chat UX        | [Intuitive bot instructions](tasks/intuitive-bot-instructions.md)   |
+| P2       | Chat UX        | [Chat output format](tasks/chat-output-format.md)                   |
+| P2       | Documentation  | [README format skill](tasks/readme-format-skill.md)                 |
+| P2       | Code Quality   | [Codebase refactoring](tasks/codebase-refactoring.md)               |
+| P2       | TypeScript     | [Google API types](tasks/google-types.md)                           |
+| P2       | Data           | [Data retention](tasks/data-retention.md)                           |
 
 ## На утверждении
 

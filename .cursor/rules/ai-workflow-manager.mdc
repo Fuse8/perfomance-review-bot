@@ -1,0 +1,6 @@
+---
+description: Use when creating, editing, installing, moving, reviewing, auditing, or syncing AI workflow files, agent rules, assistant instructions, AGENTS.md, .agents, .cursor, or tool adapters.
+alwaysApply: false
+---
+
+Read and follow .agents/skills/ai-workflow-manager/SKILL.md.

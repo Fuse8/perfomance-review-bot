@@ -1,0 +1,6 @@
+---
+description: Use when refactoring, cleaning up code, improving readability, improving code practices, or when the user says refactor.
+alwaysApply: false
+---
+
+Read and follow .agents/skills/refactoring/SKILL.md.

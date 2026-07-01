@@ -34,15 +34,19 @@ For investigation:
 
 ```md
 Root cause:
+
 - ...
 
 Evidence:
+
 - ...
 
 Fix plan:
+
 - ...
 
 Verification:
+
 - ...
 ```
 
