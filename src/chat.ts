@@ -10,7 +10,9 @@ import {
 	createReviewFolder,
 	findEmployeeFolder,
 	findPreviousReviewReport,
+	formatGoogleDriveFolderUrl,
 	listReviewStatuses,
+	parseGoogleDriveFolderUrl,
 	validateReviewerRootFolder,
 	type CreatedFolder,
 	type ReviewStatusesResult,
@@ -398,10 +400,10 @@ function buildInfoMessage(): string {
 		'',
 		'📋 Доступные команды',
 		'',
-		'• /review    Запустить Performance Review',
-		'• /status    Показать статусы ревью',
-		'• /settings  Настроить папку и задачи ревьюера',
-		'• /info         Показать информацию о боте',
+		'• /review    Создать ревью',
+		'• /status    Проверить актуальность ревью',
+		'• /settings  Настроить папку, периодичность и напоминания',
+		'• /info      Узнать о боте и его командах',
 		'',
 		'🕒 Важно',
 		'',
@@ -479,7 +481,7 @@ async function handleReviewerSettingsSubmit(
 		logChatEvent('settings.validateRootFolder.failed', { message });
 		return dialogResponse(
 			reviewerSettingsCard(config, parsed.value, {
-				error: 'Root folder ID должен быть доступной Google Drive папкой.',
+				error: 'Папка должна быть доступна через Google Drive.',
 			}),
 		);
 	}
@@ -1147,7 +1149,7 @@ function buildReviewEffectiveConfig(
 }
 
 function buildMissingReviewerSettingsMessage(): string {
-	return 'Сначала настройте /settings: укажите root folder ID для ваших Performance Review.';
+	return 'Сначала настройте /settings: укажите ссылку на корневую папку ваших Performance Review.';
 }
 
 function respondReviewMessage(
@@ -1237,7 +1239,7 @@ function parseReviewerSettings(
 			ok: false;
 			error: string;
 	  } {
-	const rootFolderId = getStringInput(inputs.rootFolderId).trim();
+	const rootFolderUrl = getStringInput(inputs.rootFolderUrl).trim();
 	const taskCollectDaysBefore = parseNonNegativeIntegerInput(
 		inputs.taskCollectDaysBefore,
 		'Дней до сбора отзывов',
@@ -1256,8 +1258,18 @@ function parseReviewerSettings(
 		'Период ревью в месяцах',
 	);
 
-	if (!rootFolderId) {
-		return { ok: false, error: 'Укажите root folder ID.' };
+	if (!rootFolderUrl) {
+		return { ok: false, error: 'Укажите ссылку на корневую папку.' };
+	}
+
+	let rootFolderId: string;
+	try {
+		rootFolderId = parseGoogleDriveFolderUrl(rootFolderUrl);
+	} catch {
+		return {
+			ok: false,
+			error: 'Укажите корректную ссылку на папку Google Drive.',
+		};
 	}
 
 	if (!taskCollectDaysBefore.ok) {
@@ -2173,9 +2185,11 @@ function reviewerSettingsCard(
 						: []),
 					{
 						textInput: {
-							name: 'rootFolderId',
-							label: 'Root folder ID',
-							value: settings?.rootFolderId ?? '',
+							name: 'rootFolderUrl',
+							label: 'Ссылка на корневую папку Google Drive',
+							value: settings?.rootFolderId
+								? formatGoogleDriveFolderUrl(settings.rootFolderId)
+								: '',
 						},
 					},
 					{
@@ -2234,7 +2248,7 @@ function reviewerSettingsCard(
 										action: {
 											function: `${config.appBaseUrl}/google-chat/events`,
 											requiredWidgets: [
-												'rootFolderId',
+												'rootFolderUrl',
 												'taskCollectDaysBefore',
 												'taskCheckDaysBefore',
 												'taskPrepareDaysBefore',

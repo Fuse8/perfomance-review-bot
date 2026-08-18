@@ -149,7 +149,7 @@ test('/info returns bot version and review command help', async () => {
 	const text = getResponseText(response);
 	assert.match(
 		text,
-		/^🚀 Performance Review Assistant\n\nВерсия: v\d+\.\d+\.\d+\n\n────────────────────────────────────\n\n📋 Доступные команды\n\n• \/review {4}Запустить Performance Review\n• \/status {4}Показать статусы ревью\n• \/settings {2}Настроить папку и задачи ревьюера\n• \/info {9}Показать информацию о боте\n\n🕒 Важно\n\nПеред \/review настройте корневую папку через \/settings\.\nБез нее запуск Performance Review недоступен\.\n\nВсе даты и время ревью, встреч и задач указываются\nпо челябинскому времени \(UTC\+5\)\.$/,
+		/^🚀 Performance Review Assistant\n\nВерсия: v\d+\.\d+\.\d+\n\n────────────────────────────────────\n\n📋 Доступные команды\n\n• \/review {4}Создать ревью\n• \/status {4}Проверить актуальность ревью\n• \/settings {2}Настроить папку, периодичность и напоминания\n• \/info {6}Узнать о боте и его командах\n\n🕒 Важно\n\nПеред \/review настройте корневую папку через \/settings\.\nБез нее запуск Performance Review недоступен\.\n\nВсе даты и время ревью, встреч и задач указываются\nпо челябинскому времени \(UTC\+5\)\.$/,
 	);
 	assert.doesNotMatch(text, /\/check-auth/);
 });
@@ -228,13 +228,42 @@ test('/settings opens dialog with default values', async () => {
 
 	assert.equal(card.header?.title, 'Настройки ревьюера');
 	assert.deepEqual(findTextInputValues(card), {
-		rootFolderId: '',
+		rootFolderUrl: '',
 		taskCollectDaysBefore: '14',
 		taskCheckDaysBefore: '7',
 		taskPrepareDaysBefore: '3',
 		taskReminderTime: '12:00',
 		reviewIntervalMonths: '6',
 	});
+});
+
+test('/settings shows a stored folder ID as a canonical Google Drive URL', async () => {
+	const settingsStorage = {
+		...storage,
+		async getReviewerSettings(): Promise<ReviewerSettings> {
+			return {
+				chatUserId: 'users/123',
+				rootFolderId: 'reviewer-root-folder-id',
+				taskCollectDaysBefore: 14,
+				taskCheckDaysBefore: 7,
+				taskPrepareDaysBefore: 3,
+				taskReminderTime: '12:00',
+				reviewIntervalMonths: 6,
+				updatedAt: '2026-08-18T00:00:00.000Z',
+			};
+		},
+	};
+
+	const response = await createHandler()(
+		config,
+		settingsStorage,
+		settingsCommandEvent(),
+	);
+
+	assert.equal(
+		findTextInputValues(getUpdatedCard(response)).rootFolderUrl,
+		'https://drive.google.com/drive/folders/reviewer-root-folder-id',
+	);
 });
 
 test('/settings saves validated reviewer settings', async () => {
@@ -257,7 +286,8 @@ test('/settings saves validated reviewer settings', async () => {
 		config,
 		settingsStorage,
 		settingsSubmitEvent({
-			rootFolderId: 'reviewer-root-folder-id',
+			rootFolderUrl:
+				'https://drive.google.com/drive/folders/reviewer-root-folder-id?usp=drive_link',
 			taskCollectDaysBefore: '10',
 			taskCheckDaysBefore: '5',
 			taskPrepareDaysBefore: '1',
@@ -302,7 +332,7 @@ test('/settings rejects invalid values before saving', async () => {
 		config,
 		settingsStorage,
 		settingsSubmitEvent({
-			rootFolderId: '',
+			rootFolderUrl: '',
 			taskCollectDaysBefore: '-1',
 			taskCheckDaysBefore: 'abc',
 			taskPrepareDaysBefore: '3',
@@ -312,8 +342,29 @@ test('/settings rejects invalid values before saving', async () => {
 	);
 
 	const text = getResponseText(response);
-	assert.match(text, /Укажите root folder ID/);
+	assert.match(text, /Укажите ссылку на корневую папку/);
 	assert.equal(saveCalled, false);
+	assert.equal(validateCalled, false);
+});
+
+test('/settings rejects a raw folder ID', async () => {
+	let validateCalled = false;
+	const handleChatEvent = createHandler({
+		async validateReviewerRootFolder() {
+			validateCalled = true;
+		},
+	});
+
+	const response = await handleChatEvent(
+		config,
+		storage,
+		settingsSubmitEvent({ rootFolderUrl: 'reviewer-root-folder-id' }),
+	);
+
+	assert.match(
+		getResponseText(response),
+		/Укажите корректную ссылку на папку Google Drive/,
+	);
 	assert.equal(validateCalled, false);
 });
 
@@ -335,7 +386,7 @@ test('/settings keeps dialog open when root folder is not valid', async () => {
 		config,
 		settingsStorage,
 		settingsSubmitEvent({
-			rootFolderId: 'bad-folder-id',
+			rootFolderUrl: 'https://drive.google.com/drive/folders/bad-folder-id',
 			taskCollectDaysBefore: '10',
 			taskCheckDaysBefore: '5',
 			taskPrepareDaysBefore: '1',
@@ -346,8 +397,11 @@ test('/settings keeps dialog open when root folder is not valid', async () => {
 	const card = getUpdatedCard(response);
 
 	assert.equal(card.header?.title, 'Настройки ревьюера');
-	assert.match(getCardText(card), /Root folder ID должен быть доступной/);
-	assert.equal(findTextInputValues(card).rootFolderId, 'bad-folder-id');
+	assert.match(getCardText(card), /Папка должна быть доступна/);
+	assert.equal(
+		findTextInputValues(card).rootFolderUrl,
+		'https://drive.google.com/drive/folders/bad-folder-id',
+	);
 	assert.equal(saveCalled, false);
 });
 
@@ -2066,7 +2120,7 @@ function statusCommandEvent(): ChatEvent {
 }
 
 function settingsSubmitEvent(overrides: {
-	rootFolderId?: string;
+	rootFolderUrl?: string;
 	taskCollectDaysBefore?: string;
 	taskCheckDaysBefore?: string;
 	taskPrepareDaysBefore?: string;
@@ -2085,9 +2139,12 @@ function settingsSubmitEvent(overrides: {
 				actionName: 'saveReviewerSettings',
 			},
 			formInputs: {
-				rootFolderId: {
+				rootFolderUrl: {
 					stringInputs: {
-						value: [overrides.rootFolderId ?? 'root-folder-id'],
+						value: [
+							overrides.rootFolderUrl ??
+								'https://drive.google.com/drive/folders/root-folder-id',
+						],
 					},
 				},
 				taskCollectDaysBefore: {

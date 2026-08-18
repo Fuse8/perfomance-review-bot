@@ -5,15 +5,51 @@ import {
 	extractPreviousReviewHeader,
 	findEmployeeFolderInDrive,
 	findPreviousReviewReportInDrive,
+	formatGoogleDriveFolderUrl,
 	formatDriveStepError,
 	grantCompanyFormResponderAccess,
 	isReviewMonthFolderName,
 	listEmployeeFoldersInDrive,
 	listReviewStatusesInDrive,
 	normalizePersonName,
+	parseGoogleDriveFolderUrl,
 	publishCopiedGoogleForm,
 	withDriveStep,
 } from './drive.js';
+
+test('parseGoogleDriveFolderUrl extracts the folder ID from a canonical URL', () => {
+	assert.equal(
+		parseGoogleDriveFolderUrl(
+			'https://drive.google.com/drive/folders/reviewer-folder-id',
+		),
+		'reviewer-folder-id',
+	);
+});
+
+test('Google Drive folder URL conversion handles account paths and canonical output', () => {
+	assert.equal(
+		parseGoogleDriveFolderUrl(
+			'https://drive.google.com/drive/u/2/folders/reviewer-folder-id?usp=drive_link#section',
+		),
+		'reviewer-folder-id',
+	);
+	assert.equal(
+		formatGoogleDriveFolderUrl('reviewer-folder-id'),
+		'https://drive.google.com/drive/folders/reviewer-folder-id',
+	);
+});
+
+test('parseGoogleDriveFolderUrl rejects values that are not supported folder URLs', () => {
+	for (const value of [
+		'reviewer-folder-id',
+		'http://drive.google.com/drive/folders/reviewer-folder-id',
+		'https://example.test/drive/folders/reviewer-folder-id',
+		'https://drive.google.com/file/d/reviewer-folder-id/view',
+		'https://drive.google.com/drive/folders/reviewer-folder-id?resourcekey=resource-key',
+	]) {
+		assert.throws(() => parseGoogleDriveFolderUrl(value));
+	}
+});
 
 test('isReviewMonthFolderName matches YYYY.MM folders', () => {
 	assert.equal(isReviewMonthFolderName('2026.06'), true);

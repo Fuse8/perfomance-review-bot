@@ -350,6 +350,35 @@ export function isReviewMonthFolderName(name: string): boolean {
 	return /^\d{4}\.\d{2}$/.test(name);
 }
 
+export function parseGoogleDriveFolderUrl(value: string): string {
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		throw new Error('Invalid Google Drive folder URL');
+	}
+
+	if (
+		url.protocol !== 'https:' ||
+		url.hostname !== 'drive.google.com' ||
+		url.searchParams.has('resourcekey')
+	) {
+		throw new Error('Invalid Google Drive folder URL');
+	}
+
+	const match = url.pathname.match(
+		/^\/drive\/(?:u\/\d+\/)?folders\/([A-Za-z0-9_-]+)\/?$/,
+	);
+	if (!match?.[1]) {
+		throw new Error('Invalid Google Drive folder URL');
+	}
+	return match[1];
+}
+
+export function formatGoogleDriveFolderUrl(folderId: string): string {
+	return `https://drive.google.com/drive/folders/${folderId}`;
+}
+
 export async function validateReviewerRootFolder(
 	config: AppConfig,
 	refreshToken: string,

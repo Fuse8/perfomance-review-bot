@@ -60,7 +60,7 @@ CLIENT_REVIEW_FORM_TEMPLATE_ID=...
 EMPLOYEE_EMAIL_DOMAINS=fuse8.online,byteminds.co.uk
 ```
 
-Корневую папку нужно задать выполнив команду `/settings` в Google Chat и сохранить свой root folder ID.
+Корневую папку нужно задать через команду `/settings` в Google Chat, вставив ссылку на папку Google Drive.
 
 Если `/healthz` отвечает `503` с `error`, в теле будет текст вроде `Missing required env var: ...` — добавьте переменные в Vercel → Settings → Environment Variables и redeploy.
 

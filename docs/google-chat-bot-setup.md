@@ -38,23 +38,27 @@ Slash commands:
 ```text
 Name: /review
 Command ID: 1
+Description: Создать ревью
 Opens dialog: enabled
 ```
 
 ```text
 Name: /settings
 Command ID: 3
+Description: Настроить папку, периодичность и напоминания
 Opens dialog: enabled
 ```
 
 ```text
 Name: /status
 Command ID: 4
+Description: Проверить актуальность ревью
 ```
 
 ```text
 Name: /info
 Command ID: 2
+Description: Узнать о боте и его командах
 ```
 
 Visibility (можно не заполнять, а выложить с помощью 7 шага):
