@@ -26,11 +26,14 @@ pnpm db:local
 pnpm prisma:migrate:dev
 ```
 
-4. Запустить приложение:
+4. Запустить приложение и HTTPS-туннель одной командой:
 
 ```bash
 pnpm dev
 ```
+
+Команда запускает PostgreSQL, приложение на порту `8080` и ngrok. По `Ctrl+C`
+приложение и туннель завершаются, а контейнер PostgreSQL остаётся запущенным.
 
 Подробная локальная настройка описана в [docs/development.md](docs/development.md).
 Настройка Google Chat app описана в
@@ -45,7 +48,8 @@ pnpm dev
 
 ## Основные команды
 
-- `pnpm dev` - запустить локальный сервер
+- `pnpm dev` - запустить PostgreSQL, локальный сервер и ngrok tunnel
+- `pnpm dev:server` - запустить только локальный сервер
 - `pnpm db:local` - поднять локальный PostgreSQL
 - `pnpm tunnel` - запустить ngrok tunnel на `8080`
 - `pnpm prisma:migrate:dev` - применить локальные миграции

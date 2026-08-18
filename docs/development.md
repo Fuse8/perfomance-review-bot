@@ -19,5 +19,5 @@
 ```bash
 pnpm db:local     # один раз перед запуском
 pnpm prisma:migrate:dev
-pnpm dev    # терминал 1
+pnpm dev:server    # терминал 1
 ```

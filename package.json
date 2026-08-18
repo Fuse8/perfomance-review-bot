@@ -7,7 +7,8 @@
 		"node": "24.x"
 	},
 	"scripts": {
-		"dev": "tsx watch src/server.ts",
+		"dev": "pnpm db:local && concurrently --kill-others --names app,tunnel --prefix-colors cyan,magenta \"pnpm dev:server\" \"pnpm tunnel\"",
+		"dev:server": "tsx watch src/server.ts",
 		"db:local": "docker compose up -d postgres",
 		"tunnel": "ngrok http 8080",
 		"build": "tsc",
@@ -38,6 +39,7 @@
 		"@eslint/js": "^10.0.1",
 		"@types/express": "^5.0.6",
 		"@types/node": "^25.9.1",
+		"concurrently": "^10.0.5",
 		"eslint": "^10.4.1",
 		"eslint-config-prettier": "^10.1.8",
 		"eslint-plugin-prettier": "^5.5.6",
