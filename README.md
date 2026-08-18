@@ -57,9 +57,10 @@ pnpm dev
 
 ## Документация
 
-- [docs/roadmap.md](docs/roadmap.md) - активные задачи
+- [docs/tasks/roadmap.md](docs/tasks/roadmap.md) - активные задачи
 - [docs/workflow.md](docs/workflow.md) - процесс ведения задачи
-- [docs/tasks/](docs/tasks/) - задачи, completed list и архив
+- [docs/tasks/active/](docs/tasks/active/) - активные задачи
+- [docs/tasks/archive/](docs/tasks/archive/) - архив задач
 - [docs/adr.md](docs/adr.md) - устойчивые технические решения
 - [docs/product-spec.md](docs/product-spec.md) - продуктовая спецификация
 - [docs/architecture.md](docs/architecture.md) - архитектура и ключевые модули

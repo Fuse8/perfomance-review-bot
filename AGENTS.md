@@ -15,12 +15,13 @@ Core project information, technology stack, environment configuration, and avail
 
 ## Task workflow
 
-- Active tasks live in `docs/tasks/` and must be linked from `docs/roadmap.md`.
-- Task files should include Problem, Desired Behavior, Current Context, Plan, Tests, Risks, and Result.
-- Keep `docs/roadmap.md` short: active task links in Planned improvements, completed task links in `docs/tasks/completed.md`.
-- After finishing a task, wait for user review. If review requests changes, implement them.
-- If the user says the task is done, fill `Result`, move the task document to `docs/tasks/archive/` with date prefix (format: `YYYY-MM-DD-task-name.md`), remove it from Planned improvements, and add it to `docs/tasks/completed.md`.
-- If the task is in review and the user says the task is ready, stage all files for the current task and create a git commit using the archived task filename as the commit message. Do not include unrelated changes.
+- Create new task files in `docs/tasks/active/` with the next available four-digit numeric prefix.
+- Add every active task to `docs/tasks/roadmap.md`.
+- New task files should include `Created: YYYY-MM-DD` and the sections `Цель`, `Что должно работать`, `Техническая реализация`, `Верификация`, and `Результат`.
+- After finishing implementation, wait for user review. If review requests changes, implement them without archiving or committing the task.
+- Do not move a task to the archive until the user explicitly says that the task is ready.
+- When the user says that the task is ready, move it from `docs/tasks/active/` to `docs/tasks/archive/`, add `Completed: YYYY-MM-DD`, fill `Результат`, append its link to `docs/tasks/archive/README.md`, and remove it from `docs/tasks/roadmap.md`.
+- After the user says that the task is ready, stage only files belonging to the task and create a Conventional Commit with the task number immediately after the type, for example `docs: 0030 organize task workflow`.
 - When archiving a task, update `docs/adr.md` if the task introduced a durable technical or product decision.
 
 ## Change policy
