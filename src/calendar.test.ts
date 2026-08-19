@@ -14,7 +14,7 @@ const EXPECTED_REVIEW_DESCRIPTION = [
 	'📄 <a href="https://docs.google.com/document/previous-report-id">Предыдущее ревью</a>',
 ].join('\n\n');
 
-test('createCalendarEventInCalendar creates a 2.5h review meeting with links', async () => {
+test('createCalendarEventInCalendar creates a 2.5h review meeting with only the report link', async () => {
 	const insertedEvents: unknown[] = [];
 	const calendar = {
 		events: {
@@ -55,7 +55,8 @@ test('createCalendarEventInCalendar creates a 2.5h review meeting with links', a
 			calendarId: 'primary',
 			requestBody: {
 				summary: 'Performance Review: Ivan Petrov',
-				description: EXPECTED_REVIEW_DESCRIPTION,
+				description:
+					'📄 <a href="https://docs.google.com/document/report-id">Отчёт</a>',
 				start: {
 					dateTime: '2026-06-15T14:30:00+05:00',
 					timeZone: 'Asia/Yekaterinburg',
@@ -71,6 +72,37 @@ test('createCalendarEventInCalendar creates a 2.5h review meeting with links', a
 			},
 		},
 	]);
+});
+
+test('createCalendarEventInCalendar leaves description empty without a report', async () => {
+	const insertedEvents: Array<{
+		requestBody: { description?: string | null };
+	}> = [];
+	const calendar = {
+		events: {
+			async insert(params: { requestBody: { description?: string | null } }) {
+				insertedEvents.push(params);
+				return {
+					data: {
+						id: 'event-id',
+						summary: 'Performance Review: Ivan Petrov',
+						htmlLink: 'https://calendar.google.com/event?eid=event-id',
+					},
+				};
+			},
+		},
+	};
+
+	await createCalendarEventInCalendar(calendar, {
+		fullName: 'Ivan Petrov',
+		employeeEmail: 'ivan.petrov@example.test',
+		reviewerEmail: 'reviewer@example.test',
+		reviewDate: '2026-06-15',
+		meetingTime: '14:30',
+		folderUrl: 'https://drive.google.com/folder',
+	});
+
+	assert.equal(insertedEvents[0]?.requestBody.description, '');
 });
 
 test('buildReviewerReminderDate subtracts calendar days and shifts weekends backward', () => {

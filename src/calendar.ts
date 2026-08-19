@@ -88,7 +88,7 @@ export async function createCalendarEventInCalendar(
 		calendarId: 'primary',
 		requestBody: {
 			summary,
-			description: buildDescription(request),
+			description: buildReviewMeetingDescription(request),
 			start: {
 				dateTime: start,
 				timeZone: REVIEW_TIME_ZONE,
@@ -179,6 +179,12 @@ export async function createReviewerReminderEventsInCalendar(
 	}
 
 	return createdEvents;
+}
+
+function buildReviewMeetingDescription(request: CalendarEventRequest): string {
+	return request.reportUrl
+		? formatCalendarLink('📄', 'Отчёт', request.reportUrl)
+		: '';
 }
 
 function buildDescription(request: CalendarEventRequest): string {
