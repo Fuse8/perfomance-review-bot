@@ -6,6 +6,14 @@ import {
 	createCalendarEventInCalendar,
 } from './calendar.js';
 
+const EXPECTED_REVIEW_DESCRIPTION = [
+	'📁 <a href="https://drive.google.com/folder">Папка ревью</a>',
+	'📄 <a href="https://docs.google.com/document/report-id">Отчёт</a>',
+	'📝 <a href="https://docs.google.com/forms/internal-form-id">Форма обратной связи (fuse8)</a>',
+	'📝 <a href="https://docs.google.com/forms/client-form-id">Форма обратной связи (клиенту)</a>',
+	'📄 <a href="https://docs.google.com/document/previous-report-id">Предыдущее ревью</a>',
+].join('\n\n');
+
 test('createCalendarEventInCalendar creates a 2.5h review meeting with links', async () => {
 	const insertedEvents: unknown[] = [];
 	const calendar = {
@@ -47,13 +55,7 @@ test('createCalendarEventInCalendar creates a 2.5h review meeting with links', a
 			calendarId: 'primary',
 			requestBody: {
 				summary: 'Performance Review: Ivan Petrov',
-				description: [
-					'Review folder: https://drive.google.com/folder',
-					'PR report: https://docs.google.com/document/report-id',
-					'Internal feedback form: https://docs.google.com/forms/internal-form-id',
-					'Client feedback form: https://docs.google.com/forms/client-form-id',
-					'Previous review: https://docs.google.com/document/previous-report-id',
-				].join('\n'),
+				description: EXPECTED_REVIEW_DESCRIPTION,
 				start: {
 					dateTime: '2026-06-15T14:30:00+05:00',
 					timeZone: 'Asia/Yekaterinburg',
@@ -141,13 +143,7 @@ test('createReviewerReminderEventsInCalendar creates 3 reviewer reminder events 
 			calendarId: 'primary',
 			requestBody: {
 				summary: 'Запустить сбор отзывов для PR Ivan Petrov',
-				description: [
-					'Review folder: https://drive.google.com/folder',
-					'PR report: https://docs.google.com/document/report-id',
-					'Internal feedback form: https://docs.google.com/forms/internal-form-id',
-					'Client feedback form: https://docs.google.com/forms/client-form-id',
-					'Previous review: https://docs.google.com/document/previous-report-id',
-				].join('\n'),
+				description: EXPECTED_REVIEW_DESCRIPTION,
 				start: {
 					dateTime: '2026-06-01T12:00:00+05:00',
 					timeZone: 'Asia/Yekaterinburg',
@@ -163,13 +159,7 @@ test('createReviewerReminderEventsInCalendar creates 3 reviewer reminder events 
 			calendarId: 'primary',
 			requestBody: {
 				summary: 'Проверить отзывы для PR Ivan Petrov',
-				description: [
-					'Review folder: https://drive.google.com/folder',
-					'PR report: https://docs.google.com/document/report-id',
-					'Internal feedback form: https://docs.google.com/forms/internal-form-id',
-					'Client feedback form: https://docs.google.com/forms/client-form-id',
-					'Previous review: https://docs.google.com/document/previous-report-id',
-				].join('\n'),
+				description: EXPECTED_REVIEW_DESCRIPTION,
 				start: {
 					dateTime: '2026-06-08T12:00:00+05:00',
 					timeZone: 'Asia/Yekaterinburg',
@@ -185,13 +175,7 @@ test('createReviewerReminderEventsInCalendar creates 3 reviewer reminder events 
 			calendarId: 'primary',
 			requestBody: {
 				summary: 'Подготовиться к проведению PR Ivan Petrov',
-				description: [
-					'Review folder: https://drive.google.com/folder',
-					'PR report: https://docs.google.com/document/report-id',
-					'Internal feedback form: https://docs.google.com/forms/internal-form-id',
-					'Client feedback form: https://docs.google.com/forms/client-form-id',
-					'Previous review: https://docs.google.com/document/previous-report-id',
-				].join('\n'),
+				description: EXPECTED_REVIEW_DESCRIPTION,
 				start: {
 					dateTime: '2026-06-12T12:00:00+05:00',
 					timeZone: 'Asia/Yekaterinburg',

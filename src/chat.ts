@@ -45,7 +45,7 @@ const SETTINGS_COMMAND_ID = 3;
 const STATUS_COMMAND_ID = 4;
 const DEFAULT_REVIEW_INTERVAL_MONTHS = 6;
 const REVIEW_WORKFLOW_ACK_MESSAGE =
-	'Запустил подготовку PR. Результат пришлю сюда.';
+	'Запустил подготовку PR — обычно это занимает около минуты. Результат пришлю сюда.';
 const BOT_VERSION = readBotVersion();
 
 type ReviewWorkflowParams = {
@@ -1541,6 +1541,11 @@ function formatReviewSuccessMessage(
 	calendarEvent?: CreatedCalendarEvent,
 	reminderEvents: CreatedReviewerReminderEvent[] = [],
 ): string {
+	const reviewPrepareReminder = reminderEvents[REVIEW_PREPARE_REMINDER_INDEX];
+	const reviewPrepareDate = reviewPrepareReminder?.startDateTime
+		? formatChatPlanDate(reviewPrepareReminder.startDateTime)
+		: '';
+
 	return [
 		`Performance Review — ${fullName}`,
 		...(calendarEvent
@@ -1563,20 +1568,57 @@ function formatReviewSuccessMessage(
 				]
 			: []),
 		'',
-		'📁 Папка ревью',
-		folder.webViewLink,
-		...(calendarEvent ? ['', '📅 Встреча', calendarEvent.htmlLink] : []),
+		`📁 ${formatChatLink(folder.webViewLink, 'Папка ревью')}`,
+		...(calendarEvent
+			? [
+					'',
+					`📅 ${formatChatLink(calendarEvent.htmlLink, 'Встреча')}`,
+					'Все напоминания и встречи по ревью автоматически отображаются в вашем календаре.',
+				]
+			: []),
 		...(folder.internalForm?.webViewLink
-			? ['', '📝 Форма обратной связи (fuse8)', folder.internalForm.webViewLink]
+			? [
+					'',
+					`📝 ${formatChatLink(
+						folder.internalForm.webViewLink,
+						'Форма обратной связи (fuse8)',
+					)}`,
+					'Добавьте в форму коллег, работавших с сотрудником.',
+					FEEDBACK_FORM_CONTACT_INSTRUCTION,
+				]
 			: []),
 		...(needsClientForm && folder.clientForm?.webViewLink
-			? ['', '📝 Форма обратной связи (клиенту)', folder.clientForm.webViewLink]
+			? [
+					'',
+					`📝 ${formatChatLink(
+						folder.clientForm.webViewLink,
+						'Форма обратной связи (клиенту)',
+					)}`,
+					'Добавьте в форму клиентов, с которыми сотрудник взаимодействовал на проекте.',
+					FEEDBACK_FORM_CONTACT_INSTRUCTION,
+				]
 			: []),
 		...(folder.report?.webViewLink
-			? ['', '📄 Отчёт', folder.report.webViewLink]
+			? [
+					'',
+					`📄 ${formatChatLink(folder.report.webViewLink, 'Отчёт')}`,
+					...(reviewPrepareDate
+						? [
+								`Нужно выслать сотруднику: попросить заполнить свою часть отчёта до ${reviewPrepareDate}.`,
+							]
+						: []),
+				]
 			: []),
 	].join('\n');
 }
+
+function formatChatLink(url: string, label: string): string {
+	return `<${url}|${label}>`;
+}
+
+const REVIEW_PREPARE_REMINDER_INDEX = 2;
+const FEEDBACK_FORM_CONTACT_INSTRUCTION =
+	'Напишите им лично, продублировав ссылку на форму и с напоминанием дедлайна.';
 
 const REVIEW_PLAN_LABELS = [
 	'Сбор отзывов',
@@ -2155,7 +2197,7 @@ function reviewFormCard(
 						buttonList: {
 							buttons: [
 								{
-									text: 'Создать папку',
+									text: 'Запустить ревью',
 									onClick: {
 										action: {
 											function: `${config.appBaseUrl}/google-chat/events`,

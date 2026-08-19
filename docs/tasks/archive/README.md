@@ -27,4 +27,5 @@
 - [0021 README format skill](0021-readme-format-skill.md) — Completed: 2026-07-01
 - [0023 Reviewer Drive folder link](0023-reviewer-drive-folder-link.md) — Completed: 2026-08-18
 - [0024 Employee folder auto create](0024-employee-folder-auto-create.md) — Completed: 2026-08-19
+- [0026 Обновить вывод workflow Performance Review](0026-review-workflow-output.md) — Completed: 2026-08-19
 - [0031 Единый запуск локальной среды](0031-local-development-command.md) — Completed: 2026-08-18

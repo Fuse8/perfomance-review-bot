@@ -183,18 +183,42 @@ export async function createReviewerReminderEventsInCalendar(
 
 function buildDescription(request: CalendarEventRequest): string {
 	return [
-		`Review folder: ${request.folderUrl}`,
-		...(request.reportUrl ? [`PR report: ${request.reportUrl}`] : []),
+		formatCalendarLink('📁', 'Папка ревью', request.folderUrl),
+		...(request.reportUrl
+			? [formatCalendarLink('📄', 'Отчёт', request.reportUrl)]
+			: []),
 		...(request.internalFormUrl
-			? [`Internal feedback form: ${request.internalFormUrl}`]
+			? [
+					formatCalendarLink(
+						'📝',
+						'Форма обратной связи (fuse8)',
+						request.internalFormUrl,
+					),
+				]
 			: []),
 		...(request.clientFormUrl
-			? [`Client feedback form: ${request.clientFormUrl}`]
+			? [
+					formatCalendarLink(
+						'📝',
+						'Форма обратной связи (клиенту)',
+						request.clientFormUrl,
+					),
+				]
 			: []),
 		...(request.previousReviewUrl
-			? [`Previous review: ${request.previousReviewUrl}`]
+			? [
+					formatCalendarLink(
+						'📄',
+						'Предыдущее ревью',
+						request.previousReviewUrl,
+					),
+				]
 			: []),
-	].join('\n');
+	].join('\n\n');
+}
+
+function formatCalendarLink(icon: string, label: string, url: string): string {
+	return `${icon} <a href="${url}">${label}</a>`;
 }
 
 function buildMeetingDateTimes(

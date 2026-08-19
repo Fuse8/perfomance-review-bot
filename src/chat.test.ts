@@ -24,7 +24,7 @@ const config: AppConfig = {
 };
 
 const REVIEW_WORKFLOW_ACK_MESSAGE =
-	'Запустил подготовку PR. Результат пришлю сюда.';
+	'Запустил подготовку PR — обычно это занимает около минуты. Результат пришлю сюда.';
 
 async function flushBackgroundTasks(): Promise<void> {
 	await new Promise<void>((resolve) => setImmediate(resolve));
@@ -1307,7 +1307,7 @@ test('/review employee check opens review form when Drive folder exists', async 
 		buttonList: {
 			buttons: [
 				{
-					text: 'Создать папку',
+					text: 'Запустить ревью',
 					onClick: {
 						action: {
 							function: 'https://example.test/google-chat/events',
@@ -1415,7 +1415,7 @@ test('/review employee check shows missing previous review status when Drive fol
 		buttonList: {
 			buttons: [
 				{
-					text: 'Создать папку',
+					text: 'Запустить ревью',
 					onClick: {
 						action: {
 							function: 'https://example.test/google-chat/events',
@@ -1658,20 +1658,21 @@ test('/review submit creates a test folder and returns its link', async () => {
 			'10.06 → Подготовка к встрече',
 			'15.06 → Встреча',
 			'',
-			'📁 Папка ревью',
-			'https://drive.google.com/folder',
+			'📁 <https://drive.google.com/folder|Папка ревью>',
 			'',
-			'📅 Встреча',
-			'https://calendar.google.com/event?eid=calendar-event-id',
+			'📅 <https://calendar.google.com/event?eid=calendar-event-id|Встреча>',
+			'Все напоминания и встречи по ревью автоматически отображаются в вашем календаре.',
 			'',
-			'📝 Форма обратной связи (fuse8)',
-			'https://docs.google.com/forms/internal-form-id',
+			'📝 <https://docs.google.com/forms/internal-form-id|Форма обратной связи (fuse8)>',
+			'Добавьте в форму коллег, работавших с сотрудником.',
+			'Напишите им лично, продублировав ссылку на форму и с напоминанием дедлайна.',
 			'',
-			'📝 Форма обратной связи (клиенту)',
-			'https://docs.google.com/forms/client-form-id',
+			'📝 <https://docs.google.com/forms/client-form-id|Форма обратной связи (клиенту)>',
+			'Добавьте в форму клиентов, с которыми сотрудник взаимодействовал на проекте.',
+			'Напишите им лично, продублировав ссылку на форму и с напоминанием дедлайна.',
 			'',
-			'📄 Отчёт',
-			'https://docs.google.com/document/report-id',
+			'📄 <https://docs.google.com/document/report-id|Отчёт>',
+			'Нужно выслать сотруднику: попросить заполнить свою часть отчёта до 10.06.',
 		].join('\n'),
 	);
 	assert.deepEqual(response.actionResponse, {
@@ -1998,9 +1999,9 @@ test('/review submit includes only internal form link when client form is not ne
 
 	assert.match(
 		messageText,
-		/📝 Форма обратной связи \(fuse8\)\nhttps:\/\/docs\.google\.com\/forms\/internal-form-id/,
+		/📝 <https:\/\/docs\.google\.com\/forms\/internal-form-id\|Форма обратной связи \(fuse8\)>/,
 	);
-	assert.doesNotMatch(messageText, /📝 Форма обратной связи \(клиенту\)/);
+	assert.doesNotMatch(messageText, /\|Форма обратной связи \(клиенту\)>/);
 });
 
 test('/review submit asks to configure report template when it is missing', async () => {
