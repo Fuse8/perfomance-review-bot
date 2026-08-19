@@ -163,26 +163,31 @@ test('/info returns bot version and review command help', async () => {
 	assert.equal(
 		text,
 		[
-			'🚀 Performance Review Assistant · vX.Y.Z',
+			'*🚀 Performance Review Assistant · vX.Y.Z*',
 			'',
 			'Бот помогает провести Performance Review: создаёт отчёт и формы в Google Drive, встречу и напоминания в календаре.',
 			'',
-			'📋 Команды',
+			'*📋 Команды*',
 			'• /review — создать новое ревью',
 			'• /status — проверить актуальность ревью',
 			'• /settings — настроить папку, периодичность и напоминания',
 			'• /info — информация о боте и командах',
 			'',
-			'⚠️ Перед первым /review',
+			'*Перед первым /review*',
+			'',
 			'1. Пройдите авторизацию. (Авторизация уже пройдена)',
+			'',
 			'2. Проверьте доступ к шаблонам (если доступа нет — обратитесь к HR):',
 			'  • <https://docs.google.com/document/d/report-template-id/edit|шаблон отчёта>',
 			'  • <https://docs.google.com/forms/d/internal-form-template-id/edit|форма для сотрудников fuse8>',
 			'  • <https://docs.google.com/forms/d/client-form-template-id/edit|форма для клиента>',
+			'',
 			'3. Укажите корневую папку ревью в /settings.',
 			'',
-			'📁 Структура папок',
+			'*Структура папок*',
+			'',
 			'Чтобы бот нашёл прошлое ревью, существующие папки и отчёт должны соответствовать этому формату.',
+			'',
 			'```',
 			'Корневая папка ревью',
 			'└── Имя Фамилия',
@@ -332,9 +337,9 @@ test('/info works for standalone slash command payload', async () => {
 	} as never);
 
 	const text = getResponseText(response);
-	assert.match(text, /^🚀 Performance Review Assistant/m);
+	assert.match(text, /^\*🚀 Performance Review Assistant/m);
 	assert.match(text, /Performance Review Assistant · v\d+\.\d+\.\d+/);
-	assert.match(text, /📋 Команды/);
+	assert.match(text, /\*📋 Команды\*/);
 	assert.match(text, /\/review/);
 	assert.match(text, /\/settings/);
 	assert.match(text, /\/info/);
