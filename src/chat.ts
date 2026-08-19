@@ -222,13 +222,7 @@ export function createChatEventHandler(
 
 		if (event.type === ADDED_TO_SPACE_EVENT) {
 			logChatEvent('route.addedToSpace');
-			return handleAddedToSpace(
-				config,
-				storage,
-				chatUserId,
-				event,
-				resolvedDeps,
-			);
+			return handleAddedToSpace(config, storage, chatUserId, resolvedDeps);
 		}
 
 		if (isEmployeeSuggestionsEvent(config, event, invokedFunction)) {
@@ -244,7 +238,7 @@ export function createChatEventHandler(
 
 		if (appCommandId === INFO_COMMAND_ID) {
 			logChatEvent('route.info');
-			return textResponse(buildInfoMessage());
+			return buildInfoResponse(config, storage, chatUserId, resolvedDeps);
 		}
 
 		if (!chatUserId) {
@@ -343,7 +337,6 @@ async function handleAddedToSpace(
 	config: AppConfig,
 	storage: AppStorage,
 	chatUserId: string | undefined,
-	event: ChatEvent,
 	deps: ChatEventHandlerDeps,
 ): Promise<ChatResponse> {
 	if (!chatUserId) {
@@ -351,68 +344,90 @@ async function handleAddedToSpace(
 		return textResponse('Не удалось определить пользователя Google Chat.');
 	}
 
-	const authUrl = await deps.buildAuthUrl(config, storage, chatUserId);
-	await sendInstallAuthLink(config, deps, event, authUrl);
-	return textResponse(buildInfoMessage());
+	return buildInfoResponse(config, storage, chatUserId, deps);
 }
 
-async function sendInstallAuthLink(
+async function buildInfoResponse(
 	config: AppConfig,
+	storage: AppStorage,
+	chatUserId: string | undefined,
 	deps: ChatEventHandlerDeps,
-	event: ChatEvent,
-	authUrl: string,
-): Promise<void> {
-	const spaceName = resolveChatSpaceName(event);
-	if (!spaceName) {
-		logChatEvent('addedToSpace.sendAuthLink.skipped', {
-			reason: 'missing_space',
-		});
-		return;
+): Promise<ChatResponse> {
+	if (!chatUserId) {
+		return textResponse(buildInfoMessage(config, { isAuthorized: false }));
 	}
 
-	try {
-		await deps.sendChatMessage(
-			config,
-			spaceName,
-			buildInstallAuthMessage(authUrl),
-		);
-		logChatEvent('addedToSpace.sendAuthLink.success', { spaceName });
-	} catch (error) {
-		const message = error instanceof Error ? error.message : 'Unknown error';
-		logChatEvent('addedToSpace.sendAuthLink.failed', { spaceName, message });
+	const token = await storage.get(chatUserId);
+	if (token) {
+		return textResponse(buildInfoMessage(config, { isAuthorized: true }));
 	}
+
+	const authUrl = await deps.buildAuthUrl(config, storage, chatUserId);
+	return textResponse(
+		buildInfoMessage(config, { isAuthorized: false, authUrl }),
+	);
 }
 
-function buildInstallAuthMessage(authUrl: string): string {
+function buildInfoMessage(
+	config: AppConfig,
+	auth: { isAuthorized: boolean; authUrl?: string },
+): string {
+	const templateLinks = [
+		...(config.reviewReportTemplateId
+			? [
+					formatChatTextLink(
+						formatGoogleDocsTemplateUrl(config.reviewReportTemplateId),
+						'шаблон отчёта',
+					),
+				]
+			: []),
+		formatChatTextLink(
+			formatGoogleFormsTemplateUrl(config.internalReviewFormTemplateId),
+			'форма для сотрудников fuse8',
+		),
+		formatChatTextLink(
+			formatGoogleFormsTemplateUrl(config.clientReviewFormTemplateId),
+			'форма для клиента',
+		),
+	];
+	const authStep = auth.isAuthorized
+		? '1. Пройдите авторизацию. (Авторизация уже пройдена)'
+		: auth.authUrl
+			? `1. ${formatChatTextLink(auth.authUrl, 'Пройдите авторизацию')}.`
+			: '1. Пройдите авторизацию через /review или /settings.';
+
 	return [
-		'Подключите Google-аккаунт ревьюера перед запуском /review:',
-		authUrl,
+		`🚀 Performance Review Assistant · v${BOT_VERSION}`,
+		'',
+		'Бот помогает провести Performance Review: создаёт отчёт и формы в Google Drive, встречу и напоминания в календаре.',
+		'',
+		'📋 Команды',
+		'• /review — создать новое ревью',
+		'• /status — проверить актуальность ревью',
+		'• /settings — настроить папку, периодичность и напоминания',
+		'• /info — информация о боте и командах',
+		'',
+		'⚠️ Перед первым /review',
+		authStep,
+		'2. Проверьте доступ к шаблонам (если доступа нет — обратитесь к HR):',
+		...templateLinks.map((link) => `  • ${link}`),
+		'3. Укажите корневую папку ревью в /settings.',
+		'',
+		'📁 Структура папок',
+		'Чтобы бот нашёл прошлое ревью, существующие папки и отчёт должны соответствовать этому формату.',
+		'```',
+		'Корневая папка ревью',
+		'└── Имя Фамилия',
+		'    └── YYYY.MM',
+		'        └── Имя Фамилия // Отчёт Performance Review // YYYY-MM',
+		'```',
+		'',
+		'Все даты и время указаны по Челябинску — UTC+5.',
 	].join('\n');
 }
 
-function buildInfoMessage(): string {
-	return [
-		'🚀 Performance Review Assistant',
-		'',
-		`Версия: v${BOT_VERSION}`,
-		'',
-		'────────────────────────────────────',
-		'',
-		'📋 Доступные команды',
-		'',
-		'• /review    Создать ревью',
-		'• /status    Проверить актуальность ревью',
-		'• /settings  Настроить папку, периодичность и напоминания',
-		'• /info      Узнать о боте и его командах',
-		'',
-		'🕒 Важно',
-		'',
-		'Перед /review настройте корневую папку через /settings.',
-		'Без нее запуск Performance Review недоступен.',
-		'',
-		'Все даты и время ревью, встреч и задач указываются',
-		'по челябинскому времени (UTC+5).',
-	].join('\n');
+function formatChatTextLink(url: string, label: string): string {
+	return `<${url}|${label}>`;
 }
 
 async function handleReviewerSettingsCommand(
@@ -2317,6 +2332,43 @@ function reviewerSettingsCard(
 						},
 					},
 					{
+						textParagraph: {
+							text: '<b>Используемые шаблоны</b><br>Шаблоны задаются администратором и доступны здесь только для просмотра.<br>(Проверьте, что у вас есть доступ к этим шаблонам — он необходим для создания ревью.)',
+						},
+					},
+					...(config.reviewReportTemplateId
+						? [
+								{
+									textParagraph: {
+										text: formatTemplateLink(
+											'Шаблон отчёта',
+											formatGoogleDocsTemplateUrl(
+												config.reviewReportTemplateId,
+											),
+										),
+									},
+								},
+							]
+						: []),
+					{
+						textParagraph: {
+							text: formatTemplateLink(
+								'Шаблон внутренней формы',
+								formatGoogleFormsTemplateUrl(
+									config.internalReviewFormTemplateId,
+								),
+							),
+						},
+					},
+					{
+						textParagraph: {
+							text: formatTemplateLink(
+								'Шаблон клиентской формы',
+								formatGoogleFormsTemplateUrl(config.clientReviewFormTemplateId),
+							),
+						},
+					},
+					{
 						buttonList: {
 							buttons: [
 								{
@@ -2348,6 +2400,18 @@ function reviewerSettingsCard(
 			},
 		],
 	};
+}
+
+function formatGoogleDocsTemplateUrl(templateId: string): string {
+	return `https://docs.google.com/document/d/${encodeURIComponent(templateId)}/edit`;
+}
+
+function formatGoogleFormsTemplateUrl(templateId: string): string {
+	return `https://docs.google.com/forms/d/${encodeURIComponent(templateId)}/edit`;
+}
+
+function formatTemplateLink(label: string, url: string): string {
+	return `<a href="${url}">${label}</a>`;
 }
 
 function authRequiredCard(authUrl: string): ChatCard {

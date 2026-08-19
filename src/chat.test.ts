@@ -147,20 +147,110 @@ type ChatEventHandlerDeps = {
 };
 
 test('/info returns bot version and review command help', async () => {
-	const handleChatEvent = createChatEventHandler();
+	const handleChatEvent = createChatEventHandler({
+		async buildAuthUrl() {
+			throw new Error('should not build an OAuth URL for an authorized user');
+		},
+	});
 
 	const response = await handleChatEvent(config, storage, {
+		user: {
+			name: 'users/123',
+		},
 		appCommandMetadata: {
 			appCommandId: 2,
 		},
 	});
 
-	const text = getResponseText(response);
-	assert.match(
+	const text = getResponseText(response).replace(/v\d+\.\d+\.\d+/, 'vX.Y.Z');
+	assert.equal(
 		text,
-		/^🚀 Performance Review Assistant\n\nВерсия: v\d+\.\d+\.\d+\n\n────────────────────────────────────\n\n📋 Доступные команды\n\n• \/review {4}Создать ревью\n• \/status {4}Проверить актуальность ревью\n• \/settings {2}Настроить папку, периодичность и напоминания\n• \/info {6}Узнать о боте и его командах\n\n🕒 Важно\n\nПеред \/review настройте корневую папку через \/settings\.\nБез нее запуск Performance Review недоступен\.\n\nВсе даты и время ревью, встреч и задач указываются\nпо челябинскому времени \(UTC\+5\)\.$/,
+		[
+			'🚀 Performance Review Assistant · vX.Y.Z',
+			'',
+			'Бот помогает провести Performance Review: создаёт отчёт и формы в Google Drive, встречу и напоминания в календаре.',
+			'',
+			'📋 Команды',
+			'• /review — создать новое ревью',
+			'• /status — проверить актуальность ревью',
+			'• /settings — настроить папку, периодичность и напоминания',
+			'• /info — информация о боте и командах',
+			'',
+			'⚠️ Перед первым /review',
+			'1. Пройдите авторизацию. (Авторизация уже пройдена)',
+			'2. Проверьте доступ к шаблонам (если доступа нет — обратитесь к HR):',
+			'  • <https://docs.google.com/document/d/report-template-id/edit|шаблон отчёта>',
+			'  • <https://docs.google.com/forms/d/internal-form-template-id/edit|форма для сотрудников fuse8>',
+			'  • <https://docs.google.com/forms/d/client-form-template-id/edit|форма для клиента>',
+			'3. Укажите корневую папку ревью в /settings.',
+			'',
+			'📁 Структура папок',
+			'Чтобы бот нашёл прошлое ревью, существующие папки и отчёт должны соответствовать этому формату.',
+			'```',
+			'Корневая папка ревью',
+			'└── Имя Фамилия',
+			'    └── YYYY.MM',
+			'        └── Имя Фамилия // Отчёт Performance Review // YYYY-MM',
+			'```',
+			'',
+			'Все даты и время указаны по Челябинску — UTC+5.',
+		].join('\n'),
 	);
 	assert.doesNotMatch(text, /\/check-auth/);
+});
+
+test('/info shows a fresh OAuth link when the reviewer is not authorized', async () => {
+	const emptyStorage = {
+		...storage,
+		async get() {
+			return null;
+		},
+	};
+	let authChatUserId = '';
+	let authUrlCount = 0;
+	const handleChatEvent = createChatEventHandler({
+		async buildAuthUrl(_config, _storage, chatUserId) {
+			authChatUserId = chatUserId;
+			authUrlCount += 1;
+			return `https://example.test/auth/start-${authUrlCount}`;
+		},
+	});
+
+	const event = {
+		user: { name: 'users/123' },
+		appCommandMetadata: { appCommandId: 2 },
+	};
+	const firstResponse = await handleChatEvent(config, emptyStorage, event);
+	const secondResponse = await handleChatEvent(config, emptyStorage, event);
+
+	assert.equal(authChatUserId, 'users/123');
+	assert.equal(authUrlCount, 2);
+	assert.match(
+		getResponseText(firstResponse),
+		/<https:\/\/example\.test\/auth\/start-1\|Пройдите авторизацию>\./,
+	);
+	assert.match(
+		getResponseText(secondResponse),
+		/<https:\/\/example\.test\/auth\/start-2\|Пройдите авторизацию>\./,
+	);
+});
+
+test('/info omits the report template link when it is not configured', async () => {
+	const response = await createChatEventHandler()(
+		{ ...config, reviewReportTemplateId: '' },
+		storage,
+		{
+			user: { name: 'users/123' },
+			appCommandMetadata: { appCommandId: 2 },
+		},
+	);
+	const text = getResponseText(response);
+
+	assert.doesNotMatch(text, /шаблон отчёта/);
+	assert.match(
+		text,
+		/Проверьте доступ к шаблонам \(если доступа нет — обратитесь к HR\):\n {2}• <https:\/\/docs\.google\.com\/forms\/d\/internal-form-template-id\/edit\|форма для сотрудников fuse8>\n {2}• <https:\/\/docs\.google\.com\/forms\/d\/client-form-template-id\/edit\|форма для клиента>/,
+	);
 });
 
 test('/info works for standalone slash command payload', async () => {
@@ -188,12 +278,12 @@ test('/info works for standalone slash command payload', async () => {
 
 	const text = getResponseText(response);
 	assert.match(text, /^🚀 Performance Review Assistant/m);
-	assert.match(text, /Версия: v\d+\.\d+\.\d+/);
-	assert.match(text, /📋 Доступные команды/);
+	assert.match(text, /Performance Review Assistant · v\d+\.\d+\.\d+/);
+	assert.match(text, /📋 Команды/);
 	assert.match(text, /\/review/);
 	assert.match(text, /\/settings/);
 	assert.match(text, /\/info/);
-	assert.match(text, /челябинскому времени \(UTC\+5\)/i);
+	assert.match(text, /Все даты и время указаны по Челябинску — UTC\+5\./);
 	assert.doesNotMatch(text, /\/check-auth/);
 });
 
@@ -244,6 +334,33 @@ test('/settings opens dialog with default values', async () => {
 		taskReminderTime: '12:00',
 		reviewIntervalMonths: '6',
 	});
+});
+
+test('/settings shows read-only text links to the configured templates', async () => {
+	const response = await createHandler()(
+		config,
+		storage,
+		settingsCommandEvent(),
+	);
+	const card = getUpdatedCard(response);
+
+	assert.match(
+		getCardText(card),
+		/Проверьте, что у вас есть доступ к этим шаблонам — он необходим для создания ревью/,
+	);
+	assert.match(
+		getCardText(card),
+		/<a href="https:\/\/docs\.google\.com\/document\/d\/report-template-id\/edit">Шаблон отчёта<\/a>/,
+	);
+	assert.match(
+		getCardText(card),
+		/<a href="https:\/\/docs\.google\.com\/forms\/d\/internal-form-template-id\/edit">Шаблон внутренней формы<\/a>/,
+	);
+	assert.match(
+		getCardText(card),
+		/<a href="https:\/\/docs\.google\.com\/forms\/d\/client-form-template-id\/edit">Шаблон клиентской формы<\/a>/,
+	);
+	assert.equal(getCardButtonText(card), 'Сохранить');
 });
 
 test('/settings shows a stored folder ID as a canonical Google Drive URL', async () => {
@@ -414,29 +531,26 @@ test('/settings keeps dialog open when root folder is not valid', async () => {
 	assert.equal(saveCalled, false);
 });
 
-test('install event returns info and sends auth link as a second message', async () => {
+test('install event includes the OAuth link in info without a second message', async () => {
 	let authChatUserId = '';
-	let sentSpaceName = '';
-	let sentText = '';
-	let sendFinished = false;
-	let releaseSend: () => void = () => {};
-	const sendBlocker = new Promise<void>((resolve) => {
-		releaseSend = resolve;
-	});
+	let sendCalled = false;
+	const emptyStorage = {
+		...storage,
+		async get() {
+			return null;
+		},
+	};
 	const handleChatEvent = createChatEventHandler({
 		async buildAuthUrl(_config, _storage, chatUserId) {
 			authChatUserId = chatUserId;
 			return 'https://example.test/auth/start';
 		},
-		async sendChatMessage(_config, spaceName, text) {
-			sentSpaceName = spaceName;
-			sentText = text;
-			await sendBlocker;
-			sendFinished = true;
+		async sendChatMessage() {
+			sendCalled = true;
 		},
 	});
 
-	const responsePromise = handleChatEvent(config, storage, {
+	const installResponse = await handleChatEvent(config, emptyStorage, {
 		type: 'ADDED_TO_SPACE',
 		user: {
 			name: 'users/123',
@@ -445,20 +559,18 @@ test('install event returns info and sends auth link as a second message', async
 			name: 'spaces/AAA',
 		},
 	});
-
-	await Promise.resolve();
-	assert.equal(sendFinished, false);
-
-	releaseSend();
-	const response = await responsePromise;
+	const infoResponse = await handleChatEvent(config, emptyStorage, {
+		user: { name: 'users/123' },
+		appCommandMetadata: { appCommandId: 2 },
+	});
 
 	assert.equal(authChatUserId, 'users/123');
-	assert.match(getResponseText(response), /^🚀 Performance Review Assistant/m);
-	assert.match(getResponseText(response), /\/review/);
-	assert.equal(sentSpaceName, 'spaces/AAA');
-	assert.match(sentText, /Подключите Google-аккаунт ревьюера/);
-	assert.match(sentText, /https:\/\/example\.test\/auth\/start/);
-	assert.equal(sendFinished, true);
+	assert.equal(getResponseText(installResponse), getResponseText(infoResponse));
+	assert.match(
+		getResponseText(installResponse),
+		/<https:\/\/example\.test\/auth\/start\|Пройдите авторизацию>/,
+	);
+	assert.equal(sendCalled, false);
 });
 
 test('install event without user returns clear error and does not build auth url', async () => {
