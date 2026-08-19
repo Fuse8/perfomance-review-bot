@@ -26,6 +26,11 @@ export type EmployeeFolder = {
 	name: string;
 };
 
+export type EnsuredEmployeeFolder = {
+	folder: EmployeeFolder;
+	created: boolean;
+};
+
 export type ReviewStatusEntry = {
 	employee: EmployeeFolder;
 	lastReview: {
@@ -261,6 +266,23 @@ export async function findEmployeeFolder(
 	const drive = google.drive({ version: 'v3', auth });
 
 	return findEmployeeFolderInDrive(
+		drive.files,
+		config.reviewsRootFolderId,
+		fullName,
+	);
+}
+
+export async function ensureEmployeeFolder(
+	config: ReviewsRootConfig,
+	refreshToken: string,
+	fullName: string,
+): Promise<EnsuredEmployeeFolder> {
+	const auth = createOAuthClient(config);
+	auth.setCredentials({ refresh_token: refreshToken });
+
+	const drive = google.drive({ version: 'v3', auth });
+
+	return ensureEmployeeFolderInDrive(
 		drive.files,
 		config.reviewsRootFolderId,
 		fullName,
@@ -591,6 +613,44 @@ export async function findEmployeeFolderInDrive(
 			(folder) => normalizePersonName(folder.name) === normalizedFullName,
 		) ?? null
 	);
+}
+
+export async function ensureEmployeeFolderInDrive(
+	files: DriveListResource & Pick<DriveFilesResource, 'create'>,
+	rootFolderId: string,
+	fullName: string,
+): Promise<EnsuredEmployeeFolder> {
+	const existingFolder = await withDriveStep(
+		`Поиск папки сотрудника "${fullName}"`,
+		() => findEmployeeFolderInDrive(files, rootFolderId, fullName),
+	);
+
+	if (existingFolder) {
+		return { folder: existingFolder, created: false };
+	}
+
+	return withDriveStep(`Создание папки сотрудника "${fullName}"`, async () => {
+		const { data } = await files.create({
+			requestBody: {
+				name: fullName,
+				mimeType: 'application/vnd.google-apps.folder',
+				parents: [rootFolderId],
+			},
+			fields: 'id,name',
+			supportsAllDrives: true,
+		});
+
+		if (!data.id || !data.name) {
+			throw new Error(
+				'Google Drive did not return created employee folder metadata',
+			);
+		}
+
+		return {
+			folder: { id: data.id, name: data.name },
+			created: true,
+		};
+	});
 }
 
 export async function listReviewStatusesInDrive(

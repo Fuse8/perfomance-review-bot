@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import {
 	createReviewFolderInDrive,
+	ensureEmployeeFolderInDrive,
 	extractPreviousReviewHeader,
 	findEmployeeFolderInDrive,
 	findPreviousReviewReportInDrive,
@@ -208,6 +209,96 @@ test('findEmployeeFolderInDrive finds employee by exact normalized folder name',
 		id: 'employee-folder-id',
 		name: '  IVAN   petrov ',
 	});
+});
+
+test('ensureEmployeeFolderInDrive returns an existing employee folder without creating another one', async () => {
+	let createCalled = false;
+	const files = {
+		async list() {
+			return {
+				data: {
+					files: [{ id: 'employee-folder-id', name: 'Ivan Petrov' }],
+				},
+			};
+		},
+		async create() {
+			createCalled = true;
+			throw new Error('should not create employee folder');
+		},
+	};
+
+	const result = await ensureEmployeeFolderInDrive(
+		files,
+		'root-folder-id',
+		'Ivan Petrov',
+	);
+
+	assert.deepEqual(result, {
+		folder: { id: 'employee-folder-id', name: 'Ivan Petrov' },
+		created: false,
+	});
+	assert.equal(createCalled, false);
+});
+
+test('ensureEmployeeFolderInDrive creates a missing employee folder in the reviews root', async () => {
+	const createRequests: Array<{
+		name?: string;
+		mimeType?: string;
+		parents?: string[];
+	}> = [];
+	const files = {
+		async list() {
+			return { data: { files: [] } };
+		},
+		async create(params: {
+			requestBody?: {
+				name?: string;
+				mimeType?: string;
+				parents?: string[];
+			};
+		}) {
+			createRequests.push(params.requestBody ?? {});
+			return {
+				data: { id: 'employee-folder-id', name: 'Ivan Petrov' },
+			};
+		},
+	};
+
+	const result = await ensureEmployeeFolderInDrive(
+		files,
+		'root-folder-id',
+		'Ivan Petrov',
+	);
+
+	assert.deepEqual(createRequests, [
+		{
+			name: 'Ivan Petrov',
+			mimeType: 'application/vnd.google-apps.folder',
+			parents: ['root-folder-id'],
+		},
+	]);
+	assert.deepEqual(result, {
+		folder: { id: 'employee-folder-id', name: 'Ivan Petrov' },
+		created: true,
+	});
+});
+
+test('ensureEmployeeFolderInDrive adds employee folder creation context to Drive permission errors', async () => {
+	const files = {
+		async list() {
+			return { data: { files: [] } };
+		},
+		async create() {
+			throw new Error(
+				'The user does not have sufficient permissions for this file.',
+			);
+		},
+	};
+
+	await assert.rejects(
+		() => ensureEmployeeFolderInDrive(files, 'root-folder-id', 'Ivan Petrov'),
+		/Создание папки сотрудника "Ivan Petrov": The user does not have sufficient permissions for this file\./,
+	);
 });
 
 test('createReviewFolderInDrive creates review month folder inside matched employee folder', async () => {

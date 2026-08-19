@@ -8,7 +8,7 @@ import {
 } from './calendar.js';
 import {
 	createReviewFolder,
-	findEmployeeFolder,
+	ensureEmployeeFolder,
 	findPreviousReviewReport,
 	formatGoogleDriveFolderUrl,
 	listReviewStatuses,
@@ -141,7 +141,7 @@ type ChatEventHandlerDeps = {
 	createReviewFolder: typeof createReviewFolder;
 	createCalendarEvent: typeof createCalendarEvent;
 	createReviewerReminderEvents: typeof createReviewerReminderEvents;
-	findEmployeeFolder: typeof findEmployeeFolder;
+	ensureEmployeeFolder: typeof ensureEmployeeFolder;
 	findPreviousReviewReport: typeof findPreviousReviewReport;
 	listReviewStatuses: typeof listReviewStatuses;
 	searchDirectoryEmployees: typeof searchDirectoryEmployees;
@@ -181,7 +181,7 @@ const defaultDeps: ChatEventHandlerDeps = {
 	createReviewFolder,
 	createCalendarEvent,
 	createReviewerReminderEvents,
-	findEmployeeFolder,
+	ensureEmployeeFolder,
 	findPreviousReviewReport,
 	listReviewStatuses,
 	searchDirectoryEmployees,
@@ -696,9 +696,9 @@ async function handleEmployeeFolderCheck(
 	}
 	const effectiveConfig = buildReviewEffectiveConfig(config, settings);
 
-	let folder;
+	let ensuredFolder;
 	try {
-		folder = await deps.findEmployeeFolder(
+		ensuredFolder = await deps.ensureEmployeeFolder(
 			effectiveConfig,
 			token.refreshToken,
 			manualFullName,
@@ -721,78 +721,76 @@ async function handleEmployeeFolderCheck(
 				},
 			);
 		}
-		throw error;
-	}
-	if (!folder) {
-		const selectedEmployeeValue = getLastStringInput(inputs.employeeFolder);
-
-		return dialogResponse(
-			employeeLookupCard(config, {
-				fullName: manualFullName,
-				email: employeeEmail,
-				selectedEmployeeValue:
-					selectedEmployeeValue ||
-					encodeEmployeeSelection(
-						employeeEmail || manualFullName,
-						manualFullName,
-					),
-				folderError:
-					'Папка сотрудника не найдена. Создайте папку вручную и нажмите «Проверить папку» еще раз.',
-			}),
+		const message = error instanceof Error ? error.message : 'Unknown error';
+		logChatEvent('employeeCheck.folder.failed', {
+			chatUserId,
+			fullName: manualFullName,
+			message,
+		});
+		return respondReviewMessage(
+			isDialogSubmit,
+			`Ошибка Google Drive: ${message}`,
+			'INVALID_ARGUMENT',
 		);
 	}
+	const employeeFolderStatus = ensuredFolder.created
+		? '✅ Папка сотрудника создана автоматически.'
+		: '✅ Папка сотрудника найдена.';
 
 	const currentMonth = formatReviewMonth(new Date().toISOString());
-	let previousReviewStatus = 'Прошлое ревью не найдено';
+	let previousReviewStatus = 'В папке ревью пока нет';
 	let previousReviewId = '';
 	let previousReviewUrl = '';
-	try {
-		const previousReview = await deps.findPreviousReviewReport(
-			effectiveConfig,
-			token.refreshToken,
-			manualFullName,
-			currentMonth,
-		);
-
-		if (previousReview) {
-			previousReviewId = previousReview.id;
-			previousReviewUrl = previousReview.webViewLink;
-			previousReviewStatus = `Прошлое ревью найдено: ${formatPreviousReviewLabel(previousReview.name)}`;
-			logChatEvent('employeeCheck.previousReview.found', {
-				reportName: previousReview.name,
-				webViewLink: previousReview.webViewLink,
-			});
-		} else {
-			logChatEvent('employeeCheck.previousReview.missing', {
-				fullName: manualFullName,
-				reviewMonth: currentMonth,
-			});
-		}
-	} catch (error) {
-		if (isOAuthAuthError(error)) {
-			logChatEvent('employeeCheck.previousReview.authFailed', {
-				chatUserId,
-				message: error instanceof Error ? error.message : String(error),
-			});
-			return respondReviewerAuthRequired(
-				config,
-				storage,
-				chatUserId,
-				deps,
-				event,
-				'chat_message',
-				{
-					clearStaleToken: true,
-				},
+	if (!ensuredFolder.created) {
+		try {
+			const previousReview = await deps.findPreviousReviewReport(
+				effectiveConfig,
+				token.refreshToken,
+				manualFullName,
+				currentMonth,
 			);
+
+			if (previousReview) {
+				previousReviewId = previousReview.id;
+				previousReviewUrl = previousReview.webViewLink;
+				previousReviewStatus = `Предыдущее ревью: ${formatPreviousReviewLabel(previousReview.name)}`;
+				logChatEvent('employeeCheck.previousReview.found', {
+					reportName: previousReview.name,
+					webViewLink: previousReview.webViewLink,
+				});
+			} else {
+				logChatEvent('employeeCheck.previousReview.missing', {
+					fullName: manualFullName,
+					reviewMonth: currentMonth,
+				});
+			}
+		} catch (error) {
+			if (isOAuthAuthError(error)) {
+				logChatEvent('employeeCheck.previousReview.authFailed', {
+					chatUserId,
+					message: error instanceof Error ? error.message : String(error),
+				});
+				return respondReviewerAuthRequired(
+					config,
+					storage,
+					chatUserId,
+					deps,
+					event,
+					'chat_message',
+					{
+						clearStaleToken: true,
+					},
+				);
+			}
+			throw error;
 		}
-		throw error;
 	}
 
 	return dialogResponse(
 		reviewFormCard(config, {
 			fullName: manualFullName,
 			employeeEmail,
+			employeeFolderStatus,
 			previousReviewStatus,
 			previousReviewId,
 			previousReviewUrl,
@@ -1391,7 +1389,28 @@ function formatReviewMonth(date: string): string {
 }
 
 function formatPreviousReviewLabel(reportName: string): string {
-	return reportName.match(/\d{4}-\d{2}|\d{4}\.\d{2}/)?.[0] ?? reportName;
+	const match = reportName.match(/(\d{4})[-.](\d{2})/);
+	if (!match) {
+		return reportName;
+	}
+
+	const monthNames = [
+		'январь',
+		'февраль',
+		'март',
+		'апрель',
+		'май',
+		'июнь',
+		'июль',
+		'август',
+		'сентябрь',
+		'октябрь',
+		'ноябрь',
+		'декабрь',
+	];
+	const monthName = monthNames[Number(match[2]) - 1];
+
+	return monthName ? `${monthName} ${match[1]}` : match[0];
 }
 
 function formatReviewStatusMessage(
@@ -1962,7 +1981,7 @@ function employeeLookupCard(
 						selectionInput: {
 							name: 'employeeFolder',
 							type: 'MULTI_SELECT',
-							label: 'Имя, фамилия или email',
+							label: 'Имя, фамилия или email (английский)',
 							multiSelectMaxSelectedItems: 1,
 							multiSelectMinQueryLength: 1,
 							...(selectedEmployee
@@ -2054,6 +2073,7 @@ function reviewFormCard(
 	initialValues: {
 		fullName?: string;
 		employeeEmail?: string;
+		employeeFolderStatus?: string;
 		previousReviewStatus?: string;
 		previousReviewId?: string;
 		previousReviewUrl?: string;
@@ -2064,6 +2084,25 @@ function reviewFormCard(
 			title: 'Запуск Performance Review',
 		},
 		sections: [
+			...(initialValues.employeeFolderStatus ||
+			initialValues.previousReviewStatus
+				? [
+						{
+							widgets: [
+								{
+									textParagraph: {
+										text: [
+											initialValues.employeeFolderStatus,
+											initialValues.previousReviewStatus,
+										]
+											.filter(Boolean)
+											.join(' '),
+									},
+								},
+							],
+						},
+					]
+				: []),
 			{
 				widgets: [
 					{
@@ -2084,15 +2123,6 @@ function reviewFormCard(
 								: {}),
 						},
 					},
-					...(initialValues.previousReviewStatus
-						? [
-								{
-									textParagraph: {
-										text: initialValues.previousReviewStatus,
-									},
-								},
-							]
-						: []),
 					{
 						dateTimePicker: {
 							name: 'reviewDate',
@@ -2112,11 +2142,10 @@ function reviewFormCard(
 					{
 						selectionInput: {
 							name: 'needsClientForm',
-							label: 'Клиентская форма',
 							type: 'CHECK_BOX',
 							items: [
 								{
-									text: 'Нужна',
+									text: 'Создать форму обратной связи для клиента',
 									value: 'yes',
 								},
 							],
