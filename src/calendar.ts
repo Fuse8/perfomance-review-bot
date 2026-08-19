@@ -15,7 +15,11 @@ export type CreatedCalendarEvent = {
 	startDateTime: string;
 };
 
-export type CreatedReviewerReminderEvent = CreatedCalendarEvent;
+export type ReviewerReminderKind = 'collect' | 'check' | 'prepare';
+
+export type CreatedReviewerReminderEvent = CreatedCalendarEvent & {
+	kind: ReviewerReminderKind;
+};
 
 export type CalendarEventRequest = {
 	fullName: string;
@@ -120,17 +124,21 @@ export async function createReviewerReminderEventsInCalendar(
 	calendar: CalendarResource,
 	settings: ReviewerReminderSettings,
 	request: CalendarEventRequest,
+	currentDate = new Date(),
 ): Promise<CreatedReviewerReminderEvent[]> {
 	const reminders = [
 		{
+			kind: 'collect' as const,
 			summary: `Запустить сбор отзывов для PR ${request.fullName}`,
 			daysBefore: settings.taskCollectDaysBefore,
 		},
 		{
+			kind: 'check' as const,
 			summary: `Проверить отзывы для PR ${request.fullName}`,
 			daysBefore: settings.taskCheckDaysBefore,
 		},
 		{
+			kind: 'prepare' as const,
 			summary: `Подготовиться к проведению PR ${request.fullName}`,
 			daysBefore: settings.taskPrepareDaysBefore,
 		},
@@ -147,6 +155,10 @@ export async function createReviewerReminderEventsInCalendar(
 			settings.taskReminderTime,
 			REMINDER_DURATION_MINUTES,
 		);
+		if (new Date(start).getTime() <= currentDate.getTime()) {
+			continue;
+		}
+
 		const { data } = await calendar.events.insert({
 			calendarId: 'primary',
 			requestBody: {
@@ -171,6 +183,7 @@ export async function createReviewerReminderEventsInCalendar(
 		}
 
 		createdEvents.push({
+			kind: reminder.kind,
 			id: data.id,
 			summary: data.summary,
 			htmlLink: data.htmlLink,

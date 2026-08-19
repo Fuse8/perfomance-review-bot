@@ -14,6 +14,44 @@ const EXPECTED_REVIEW_DESCRIPTION = [
 	'📄 <a href="https://docs.google.com/document/previous-report-id">Предыдущее ревью</a>',
 ].join('\n\n');
 
+const REMINDER_SETTINGS = {
+	taskCollectDaysBefore: 14,
+	taskCheckDaysBefore: 7,
+	taskPrepareDaysBefore: 3,
+	taskReminderTime: '12:00',
+};
+
+const REMINDER_REQUEST = {
+	fullName: 'Ivan Petrov',
+	employeeEmail: 'ivan.petrov@example.test',
+	reviewerEmail: 'reviewer@example.test',
+	reviewDate: '2026-06-15',
+	meetingTime: '14:30',
+	folderUrl: 'https://drive.google.com/folder',
+};
+
+function createReminderCalendar() {
+	const insertedEvents: unknown[] = [];
+	return {
+		insertedEvents,
+		calendar: {
+			events: {
+				async insert(params: unknown) {
+					insertedEvents.push(params);
+					return {
+						data: {
+							id: `reminder-${insertedEvents.length}`,
+							summary: (params as { requestBody: { summary: string } })
+								.requestBody.summary,
+							htmlLink: `https://calendar.google.com/event?eid=reminder-${insertedEvents.length}`,
+						},
+					};
+				},
+			},
+		},
+	};
+}
+
 test('createCalendarEventInCalendar creates a 2.5h review meeting with only the report link', async () => {
 	const insertedEvents: unknown[] = [];
 	const calendar = {
@@ -160,14 +198,24 @@ test('createReviewerReminderEventsInCalendar creates 3 reviewer reminder events 
 			clientFormUrl: 'https://docs.google.com/forms/client-form-id',
 			previousReviewUrl: 'https://docs.google.com/document/previous-report-id',
 		},
+		new Date('2026-05-01T00:00:00.000Z'),
 	);
 
 	assert.deepEqual(
-		events.map((event) => event.summary),
+		events.map((event) => ({ kind: event.kind, summary: event.summary })),
 		[
-			'Запустить сбор отзывов для PR Ivan Petrov',
-			'Проверить отзывы для PR Ivan Petrov',
-			'Подготовиться к проведению PR Ivan Petrov',
+			{
+				kind: 'collect',
+				summary: 'Запустить сбор отзывов для PR Ivan Petrov',
+			},
+			{
+				kind: 'check',
+				summary: 'Проверить отзывы для PR Ivan Petrov',
+			},
+			{
+				kind: 'prepare',
+				summary: 'Подготовиться к проведению PR Ivan Petrov',
+			},
 		],
 	);
 	assert.deepEqual(insertedEvents, [
@@ -220,4 +268,64 @@ test('createReviewerReminderEventsInCalendar creates 3 reviewer reminder events 
 			},
 		},
 	]);
+});
+
+test('createReviewerReminderEventsInCalendar skips all reminders that have started', async () => {
+	const { calendar, insertedEvents } = createReminderCalendar();
+
+	const events = await createReviewerReminderEventsInCalendar(
+		calendar,
+		REMINDER_SETTINGS,
+		REMINDER_REQUEST,
+		new Date('2026-06-12T07:00:00.000Z'),
+	);
+
+	assert.deepEqual(events, []);
+	assert.deepEqual(insertedEvents, []);
+});
+
+test('createReviewerReminderEventsInCalendar keeps only future reminders', async () => {
+	const { calendar, insertedEvents } = createReminderCalendar();
+
+	const events = await createReviewerReminderEventsInCalendar(
+		calendar,
+		REMINDER_SETTINGS,
+		REMINDER_REQUEST,
+		new Date('2026-06-05T07:00:00.000Z'),
+	);
+
+	assert.deepEqual(
+		events.map((event) => event.kind),
+		['check', 'prepare'],
+	);
+	assert.equal(insertedEvents.length, 2);
+});
+
+test('createReviewerReminderEventsInCalendar compares same-day reminder time', async () => {
+	const sameDaySettings = {
+		...REMINDER_SETTINGS,
+		taskCollectDaysBefore: 0,
+		taskCheckDaysBefore: 0,
+		taskPrepareDaysBefore: 0,
+	};
+	const beforeStart = createReminderCalendar();
+	const atStart = createReminderCalendar();
+
+	const futureEvents = await createReviewerReminderEventsInCalendar(
+		beforeStart.calendar,
+		sameDaySettings,
+		REMINDER_REQUEST,
+		new Date('2026-06-15T06:59:59.000Z'),
+	);
+	const startedEvents = await createReviewerReminderEventsInCalendar(
+		atStart.calendar,
+		sameDaySettings,
+		REMINDER_REQUEST,
+		new Date('2026-06-15T07:00:00.000Z'),
+	);
+
+	assert.equal(futureEvents.length, 3);
+	assert.equal(beforeStart.insertedEvents.length, 3);
+	assert.deepEqual(startedEvents, []);
+	assert.deepEqual(atStart.insertedEvents, []);
 });

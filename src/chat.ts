@@ -1541,7 +1541,9 @@ function formatReviewSuccessMessage(
 	calendarEvent?: CreatedCalendarEvent,
 	reminderEvents: CreatedReviewerReminderEvent[] = [],
 ): string {
-	const reviewPrepareReminder = reminderEvents[REVIEW_PREPARE_REMINDER_INDEX];
+	const reviewPrepareReminder = reminderEvents.find(
+		(event) => event.kind === 'prepare',
+	);
 	const reviewPrepareDate = reviewPrepareReminder?.startDateTime
 		? formatChatPlanDate(reviewPrepareReminder.startDateTime)
 		: '';
@@ -1559,8 +1561,8 @@ function formatReviewSuccessMessage(
 					'',
 					'План:',
 					...reminderEvents.map(
-						(event, index) =>
-							`${formatChatPlanDate(event.startDateTime)} → ${formatPlanLabel(index, event.summary)}`,
+						(event) =>
+							`${formatChatPlanDate(event.startDateTime)} → ${formatPlanLabel(event.kind)}`,
 					),
 					...(calendarEvent
 						? [`${formatChatPlanDate(calendarEvent.startDateTime)} → Встреча`]
@@ -1573,7 +1575,11 @@ function formatReviewSuccessMessage(
 			? [
 					'',
 					`📅 ${formatChatLink(calendarEvent.htmlLink, 'Встреча')}`,
-					'Все напоминания и встречи по ревью автоматически отображаются в вашем календаре.',
+					...(reminderEvents.length
+						? [
+								'Все напоминания и встречи по ревью отображаются в вашем календаре.',
+							]
+						: ['Встреча по ревью отображается в вашем календаре.']),
 				]
 			: []),
 		...(folder.internalForm?.webViewLink
@@ -1616,15 +1622,15 @@ function formatChatLink(url: string, label: string): string {
 	return `<${url}|${label}>`;
 }
 
-const REVIEW_PREPARE_REMINDER_INDEX = 2;
 const FEEDBACK_FORM_CONTACT_INSTRUCTION =
 	'Напишите им лично, продублировав ссылку на форму и с напоминанием дедлайна.';
 
-const REVIEW_PLAN_LABELS = [
-	'Сбор отзывов',
-	'Проверка отзывов',
-	'Подготовка к встрече',
-];
+const REVIEW_PLAN_LABELS: Record<CreatedReviewerReminderEvent['kind'], string> =
+	{
+		collect: 'Сбор отзывов',
+		check: 'Проверка отзывов',
+		prepare: 'Подготовка к встрече',
+	};
 
 function formatChatFullDateTime(dateTime: string): string {
 	const match = dateTime.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2})/);
@@ -1646,8 +1652,8 @@ function formatChatPlanDate(dateTime: string): string {
 	return `${day}.${month}`;
 }
 
-function formatPlanLabel(index: number, fallback: string): string {
-	return REVIEW_PLAN_LABELS[index] ?? fallback;
+function formatPlanLabel(kind: CreatedReviewerReminderEvent['kind']): string {
+	return REVIEW_PLAN_LABELS[kind];
 }
 
 function isEmailInDomains(email: string, domains: string[]): boolean {

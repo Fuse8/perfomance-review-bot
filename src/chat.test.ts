@@ -87,18 +87,21 @@ function createHandler(overrides: Partial<ChatEventHandlerDeps> = {}) {
 		async createReviewerReminderEvents() {
 			return [
 				{
+					kind: 'collect',
 					id: 'collect-reminder-id',
 					summary: 'Запустить сбор отзывов для PR Ivan Petrov',
 					htmlLink: 'https://calendar.google.com/event?eid=collect-reminder-id',
 					startDateTime: '2026-05-26T12:00:00+05:00',
 				},
 				{
+					kind: 'check',
 					id: 'check-reminder-id',
 					summary: 'Проверить отзывы для PR Ivan Petrov',
 					htmlLink: 'https://calendar.google.com/event?eid=check-reminder-id',
 					startDateTime: '2026-06-04T12:00:00+05:00',
 				},
 				{
+					kind: 'prepare',
 					id: 'prepare-reminder-id',
 					summary: 'Подготовиться к проведению PR Ivan Petrov',
 					htmlLink: 'https://calendar.google.com/event?eid=prepare-reminder-id',
@@ -1612,18 +1615,14 @@ test('/review submit creates a test folder and returns its link', async () => {
 			});
 			return [
 				{
-					id: 'collect-reminder-id',
-					summary: 'Запустить сбор отзывов для PR Ivan Petrov',
-					htmlLink: 'https://calendar.google.com/event?eid=collect-reminder-id',
-					startDateTime: '2026-05-26T12:00:00+05:00',
-				},
-				{
+					kind: 'check',
 					id: 'check-reminder-id',
 					summary: 'Проверить отзывы для PR Ivan Petrov',
 					htmlLink: 'https://calendar.google.com/event?eid=check-reminder-id',
 					startDateTime: '2026-06-04T12:00:00+05:00',
 				},
 				{
+					kind: 'prepare',
 					id: 'prepare-reminder-id',
 					summary: 'Подготовиться к проведению PR Ivan Petrov',
 					htmlLink: 'https://calendar.google.com/event?eid=prepare-reminder-id',
@@ -1653,7 +1652,6 @@ test('/review submit creates a test folder and returns its link', async () => {
 			'Дата ревью: 15.06.2026, 14:30',
 			'',
 			'План:',
-			'26.05 → Сбор отзывов',
 			'04.06 → Проверка отзывов',
 			'10.06 → Подготовка к встрече',
 			'15.06 → Встреча',
@@ -1661,7 +1659,7 @@ test('/review submit creates a test folder and returns its link', async () => {
 			'📁 <https://drive.google.com/folder|Папка ревью>',
 			'',
 			'📅 <https://calendar.google.com/event?eid=calendar-event-id|Встреча>',
-			'Все напоминания и встречи по ревью автоматически отображаются в вашем календаре.',
+			'Все напоминания и встречи по ревью отображаются в вашем календаре.',
 			'',
 			'📝 <https://docs.google.com/forms/internal-form-id|Форма обратной связи (fuse8)>',
 			'Добавьте в форму коллег, работавших с сотрудником.',
@@ -1694,6 +1692,35 @@ test('/review submit creates a test folder and returns its link', async () => {
 			text: messageText,
 		},
 	]);
+});
+
+test('/review submit mentions only the meeting when all reminders are skipped', async () => {
+	const sentMessages: string[] = [];
+	const handleChatEvent = createHandler({
+		async createReviewFolder() {
+			return {
+				id: 'folder-id',
+				name: '2026.06',
+				webViewLink: 'https://drive.google.com/folder',
+			};
+		},
+		async createReviewerReminderEvents() {
+			return [];
+		},
+		async sendChatMessage(_config, _spaceName, text) {
+			sentMessages.push(text);
+		},
+	});
+
+	await handleChatEvent(config, storage, reviewSubmitEvent());
+	await flushBackgroundTasks();
+
+	const messageText = sentMessages[1] ?? '';
+	assert.match(
+		messageText,
+		/Встреча по ревью отображается в вашем календаре\./,
+	);
+	assert.doesNotMatch(messageText, /Все напоминания и встречи/);
 });
 
 test('/review submit falls back to reviewer email when profile name is missing', async () => {
