@@ -29,3 +29,8 @@
 Reviewer refresh tokens хранятся через Prisma/PostgreSQL. Контракт
 `TokenStorage` остается стабильной границей между workflow и storage
 реализациями.
+
+OAuth `state` не хранится в базе: бот включает в него `chatUserId`, email и срок
+действия, кодирует payload через Base64URL и подписывает HMAC-SHA256. Ссылка
+действует 10 минут и создаётся только из события Google Chat с идентификатором и
+email пользователя.

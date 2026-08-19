@@ -7,6 +7,8 @@ function setRequiredConfigEnv(): void {
 	process.env.GOOGLE_CLIENT_ID = 'client-id';
 	process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
 	process.env.GOOGLE_REDIRECT_URI = 'https://example.test/auth/google/callback';
+	process.env.OAUTH_STATE_SECRET =
+		'test-oauth-state-secret-at-least-32-characters';
 	process.env.DATABASE_URL = 'postgresql://user:pass@host/db';
 	process.env.INTERNAL_REVIEW_FORM_TEMPLATE_ID = 'internal-template-id';
 	process.env.CLIENT_REVIEW_FORM_TEMPLATE_ID = 'client-template-id';
@@ -22,6 +24,38 @@ test('loadConfig reads feedback form template ids from env', () => {
 
 		assert.equal(config.internalReviewFormTemplateId, 'internal-template-id');
 		assert.equal(config.clientReviewFormTemplateId, 'client-template-id');
+	} finally {
+		process.env = previousEnv;
+	}
+});
+
+test('loadConfig requires an OAuth state secret of at least 32 characters', () => {
+	const previousEnv = { ...process.env };
+
+	try {
+		setRequiredConfigEnv();
+		process.env.OAUTH_STATE_SECRET = 'too-short';
+
+		assert.throws(
+			() => loadConfig(),
+			/OAUTH_STATE_SECRET must be at least 32 characters long/,
+		);
+	} finally {
+		process.env = previousEnv;
+	}
+});
+
+test('loadConfig requires an OAuth state secret', () => {
+	const previousEnv = { ...process.env };
+
+	try {
+		setRequiredConfigEnv();
+		delete process.env.OAUTH_STATE_SECRET;
+
+		assert.throws(
+			() => loadConfig(),
+			/Missing required env var: OAUTH_STATE_SECRET/,
+		);
 	} finally {
 		process.env = previousEnv;
 	}

@@ -3,6 +3,7 @@ export type AppConfig = {
 	googleClientId: string;
 	googleClientSecret: string;
 	googleRedirectUri: string;
+	oauthStateSecret: string;
 	chatServiceAccountKeyFile?: string;
 	chatServiceAccountCredentials?: string;
 	reviewReportTemplateId: string;
@@ -26,11 +27,17 @@ function requiredEnv(name: string): string {
 }
 
 export function loadConfig(): AppConfig {
+	const oauthStateSecret = requiredEnv('OAUTH_STATE_SECRET');
+	if (oauthStateSecret.length < 32) {
+		throw new Error('OAUTH_STATE_SECRET must be at least 32 characters long');
+	}
+
 	return {
 		appBaseUrl: requiredEnv('APP_BASE_URL').replace(/\/$/, ''),
 		googleClientId: requiredEnv('GOOGLE_CLIENT_ID'),
 		googleClientSecret: requiredEnv('GOOGLE_CLIENT_SECRET'),
 		googleRedirectUri: requiredEnv('GOOGLE_REDIRECT_URI'),
+		oauthStateSecret,
 		chatServiceAccountKeyFile:
 			process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE || undefined,
 		chatServiceAccountCredentials:

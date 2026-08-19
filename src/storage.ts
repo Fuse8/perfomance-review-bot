@@ -1,7 +1,7 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 import type { AppConfig } from './config.js';
-import type { OAuthState, ReviewerSettings, ReviewerToken } from './types.js';
+import type { ReviewerSettings, ReviewerToken } from './types.js';
 
 let prismaClient: PrismaClient | null = null;
 
@@ -9,8 +9,6 @@ export interface TokenStorage {
 	get(chatUserId: string): Promise<ReviewerToken | null>;
 	save(token: ReviewerToken): Promise<void>;
 	delete(chatUserId: string): Promise<void>;
-	saveOAuthState(state: OAuthState): Promise<void>;
-	consumeOAuthState(state: string): Promise<OAuthState | null>;
 }
 
 export interface ReviewerSettingsStorage {
@@ -36,12 +34,6 @@ type PrismaReviewerTokenDelegate = {
 	delete(args: { where: { chatUserId: string } }): Promise<unknown>;
 };
 
-type PrismaOAuthStateDelegate = {
-	create(args: { data: OAuthState }): Promise<OAuthState>;
-	findUnique(args: { where: { state: string } }): Promise<OAuthState | null>;
-	delete(args: { where: { state: string } }): Promise<unknown>;
-};
-
 type PrismaReviewerSettingsDelegate = {
 	findUnique(args: {
 		where: { chatUserId: string };
@@ -55,7 +47,6 @@ type PrismaReviewerSettingsDelegate = {
 
 type PrismaStorageClient = {
 	reviewerToken: PrismaReviewerTokenDelegate;
-	oauthState: PrismaOAuthStateDelegate;
 	reviewerSettings: PrismaReviewerSettingsDelegate;
 };
 
@@ -84,27 +75,6 @@ export class PrismaTokenStorage implements AppStorage {
 		} catch {
 			// Delete should behave like local storage and be idempotent.
 		}
-	}
-
-	async saveOAuthState(state: OAuthState): Promise<void> {
-		await this.prisma.oauthState.create({
-			data: state,
-		});
-	}
-
-	async consumeOAuthState(state: string): Promise<OAuthState | null> {
-		const stateData = await this.prisma.oauthState.findUnique({
-			where: { state },
-		});
-
-		if (!stateData) {
-			return null;
-		}
-
-		await this.prisma.oauthState.delete({
-			where: { state },
-		});
-		return stateData;
 	}
 
 	async getReviewerSettings(
@@ -163,34 +133,6 @@ function createPrismaTokenStorage(config: AppConfig): AppStorage {
 				await prismaClient!.reviewerToken.delete({ where });
 			},
 		},
-		oauthState: {
-			async create({ data }) {
-				const record = await prismaClient!.oAuthState.create({
-					data: mapOAuthStateForDb(data),
-				});
-				return {
-					state: record.state,
-					chatUserId: record.chatUserId,
-					expiresAt: record.expiresAt.toISOString(),
-					createdAt: record.createdAt.toISOString(),
-				};
-			},
-			async findUnique({ where }) {
-				const record = await prismaClient!.oAuthState.findUnique({ where });
-				if (!record) {
-					return null;
-				}
-				return {
-					state: record.state,
-					chatUserId: record.chatUserId,
-					expiresAt: record.expiresAt.toISOString(),
-					createdAt: record.createdAt.toISOString(),
-				};
-			},
-			async delete({ where }) {
-				await prismaClient!.oAuthState.delete({ where });
-			},
-		},
 		reviewerSettings: {
 			async findUnique({ where }) {
 				const record = await prismaClient!.reviewerSettings.findUnique({
@@ -219,15 +161,6 @@ function mapReviewerTokenForDb(token: ReviewerToken) {
 		googleUserEmail: token.googleUserEmail,
 		refreshToken: token.refreshToken,
 		createdAt: new Date(token.createdAt),
-	};
-}
-
-function mapOAuthStateForDb(state: OAuthState) {
-	return {
-		state: state.state,
-		chatUserId: state.chatUserId,
-		expiresAt: new Date(state.expiresAt),
-		createdAt: new Date(state.createdAt),
 	};
 }
 

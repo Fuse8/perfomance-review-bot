@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import type { OAuthState, ReviewerSettings, ReviewerToken } from './types.js';
+import type { ReviewerSettings, ReviewerToken } from './types.js';
 import { PrismaTokenStorage } from './storage.js';
 
 const unusedReviewerSettingsDelegate = {
@@ -36,17 +36,6 @@ test('PrismaTokenStorage saves, gets and deletes reviewer tokens', async () => {
 				tokens.delete(where.chatUserId);
 			},
 		},
-		oauthState: {
-			async create() {
-				throw new Error('not used');
-			},
-			async findUnique() {
-				throw new Error('not used');
-			},
-			async delete() {
-				throw new Error('not used');
-			},
-		},
 		reviewerSettings: unusedReviewerSettingsDelegate,
 	});
 
@@ -64,47 +53,6 @@ test('PrismaTokenStorage saves, gets and deletes reviewer tokens', async () => {
 	assert.equal(await storage.get('users/123'), null);
 });
 
-test('PrismaTokenStorage consumes oauth state and deletes it', async () => {
-	const oauthStates = new Map<string, OAuthState>();
-	const storage = new PrismaTokenStorage({
-		reviewerToken: {
-			async findUnique() {
-				throw new Error('not used');
-			},
-			async upsert() {
-				throw new Error('not used');
-			},
-			async delete() {
-				throw new Error('not used');
-			},
-		},
-		oauthState: {
-			async create({ data }: { data: OAuthState }) {
-				oauthStates.set(data.state, data);
-				return data;
-			},
-			async findUnique({ where }: { where: { state: string } }) {
-				return oauthStates.get(where.state) ?? null;
-			},
-			async delete({ where }: { where: { state: string } }) {
-				oauthStates.delete(where.state);
-			},
-		},
-		reviewerSettings: unusedReviewerSettingsDelegate,
-	});
-
-	const state: OAuthState = {
-		state: 'oauth-state',
-		chatUserId: 'users/123',
-		expiresAt: '2026-05-27T00:10:00.000Z',
-		createdAt: '2026-05-27T00:00:00.000Z',
-	};
-
-	await storage.saveOAuthState(state);
-	assert.deepEqual(await storage.consumeOAuthState('oauth-state'), state);
-	assert.equal(await storage.consumeOAuthState('oauth-state'), null);
-});
-
 test('PrismaTokenStorage saves and gets reviewer settings', async () => {
 	const reviewerSettings = new Map<string, ReviewerSettings>();
 	const storage = new PrismaTokenStorage({
@@ -113,17 +61,6 @@ test('PrismaTokenStorage saves and gets reviewer settings', async () => {
 				throw new Error('not used');
 			},
 			async upsert() {
-				throw new Error('not used');
-			},
-			async delete() {
-				throw new Error('not used');
-			},
-		},
-		oauthState: {
-			async create() {
-				throw new Error('not used');
-			},
-			async findUnique() {
 				throw new Error('not used');
 			},
 			async delete() {

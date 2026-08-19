@@ -10,6 +10,7 @@ const config: AppConfig = {
 	googleClientId: 'client-id',
 	googleClientSecret: 'client-secret',
 	googleRedirectUri: 'https://example.test/auth/google/callback',
+	oauthStateSecret: 'test-oauth-state-secret-at-least-32-characters',
 	chatServiceAccountKeyFile: undefined,
 	reviewReportTemplateId: 'report-template-id',
 	internalReviewFormTemplateId: 'internal-form-template-id',
@@ -42,10 +43,6 @@ const storage = {
 	},
 	async save() {},
 	async delete() {},
-	async saveOAuthState() {},
-	async consumeOAuthState() {
-		return null;
-	},
 	async getReviewerSettings() {
 		return {
 			chatUserId: 'users/123',
@@ -207,23 +204,26 @@ test('/info shows a fresh OAuth link when the reviewer is not authorized', async
 		},
 	};
 	let authChatUserId = '';
+	let authEmail = '';
 	let authUrlCount = 0;
 	const handleChatEvent = createChatEventHandler({
-		async buildAuthUrl(_config, _storage, chatUserId) {
+		async buildAuthUrl(_config, chatUserId, email) {
 			authChatUserId = chatUserId;
+			authEmail = email;
 			authUrlCount += 1;
 			return `https://example.test/auth/start-${authUrlCount}`;
 		},
 	});
 
 	const event = {
-		user: { name: 'users/123' },
+		user: { name: 'users/123', email: ' Reviewer@Example.COM ' },
 		appCommandMetadata: { appCommandId: 2 },
 	};
 	const firstResponse = await handleChatEvent(config, emptyStorage, event);
 	const secondResponse = await handleChatEvent(config, emptyStorage, event);
 
 	assert.equal(authChatUserId, 'users/123');
+	assert.equal(authEmail, 'reviewer@example.com');
 	assert.equal(authUrlCount, 2);
 	assert.match(
 		getResponseText(firstResponse),
@@ -251,6 +251,61 @@ test('/info omits the report template link when it is not configured', async () 
 		text,
 		/Проверьте доступ к шаблонам \(если доступа нет — обратитесь к HR\):\n {2}• <https:\/\/docs\.google\.com\/forms\/d\/internal-form-template-id\/edit\|форма для сотрудников fuse8>\n {2}• <https:\/\/docs\.google\.com\/forms\/d\/client-form-template-id\/edit\|форма для клиента>/,
 	);
+});
+
+test('/info without Chat email does not create an OAuth link', async () => {
+	let buildAuthUrlCalled = false;
+	const handleChatEvent = createChatEventHandler({
+		async buildAuthUrl() {
+			buildAuthUrlCalled = true;
+			return 'https://example.test/oauth';
+		},
+	});
+	const emptyStorage = {
+		...storage,
+		async get() {
+			return null;
+		},
+	};
+
+	const response = await handleChatEvent(config, emptyStorage, {
+		user: { name: 'users/123' },
+		appCommandMetadata: { appCommandId: 2 },
+	});
+
+	assert.equal(buildAuthUrlCalled, false);
+	assert.match(getResponseText(response), /Не удалось определить email/);
+});
+
+test('auth-required commands bind OAuth links to the normalized Chat email', async () => {
+	const identities: Array<{ chatUserId: string; email: string }> = [];
+	const handleChatEvent = createChatEventHandler({
+		async buildAuthUrl(_config, chatUserId, email) {
+			identities.push({ chatUserId, email });
+			return 'https://example.test/oauth';
+		},
+	});
+	const emptyStorage = {
+		...storage,
+		async get() {
+			return null;
+		},
+	};
+
+	for (const event of [
+		reviewCommandEvent(),
+		settingsCommandEvent(),
+		statusCommandEvent(),
+	]) {
+		event.user!.email = ' Reviewer@Example.COM ';
+		await handleChatEvent(config, emptyStorage, event);
+	}
+
+	assert.deepEqual(identities, [
+		{ chatUserId: 'users/123', email: 'reviewer@example.com' },
+		{ chatUserId: 'users/123', email: 'reviewer@example.com' },
+		{ chatUserId: 'users/123', email: 'reviewer@example.com' },
+	]);
 });
 
 test('/info works for standalone slash command payload', async () => {
@@ -295,7 +350,9 @@ test('/settings without token returns auth card', async () => {
 		},
 	};
 	const handleChatEvent = createChatEventHandler({
-		async buildAuthUrl() {
+		async buildAuthUrl(_config, chatUserId, email) {
+			assert.equal(chatUserId, 'users/123');
+			assert.equal(email, 'reviewer@example.test');
 			return 'https://example.test/oauth';
 		},
 	});
@@ -533,6 +590,7 @@ test('/settings keeps dialog open when root folder is not valid', async () => {
 
 test('install event includes the OAuth link in info without a second message', async () => {
 	let authChatUserId = '';
+	let authEmail = '';
 	let sendCalled = false;
 	const emptyStorage = {
 		...storage,
@@ -541,8 +599,9 @@ test('install event includes the OAuth link in info without a second message', a
 		},
 	};
 	const handleChatEvent = createChatEventHandler({
-		async buildAuthUrl(_config, _storage, chatUserId) {
+		async buildAuthUrl(_config, chatUserId, email) {
 			authChatUserId = chatUserId;
+			authEmail = email;
 			return 'https://example.test/auth/start';
 		},
 		async sendChatMessage() {
@@ -554,17 +613,19 @@ test('install event includes the OAuth link in info without a second message', a
 		type: 'ADDED_TO_SPACE',
 		user: {
 			name: 'users/123',
+			email: 'reviewer@example.test',
 		},
 		space: {
 			name: 'spaces/AAA',
 		},
 	});
 	const infoResponse = await handleChatEvent(config, emptyStorage, {
-		user: { name: 'users/123' },
+		user: { name: 'users/123', email: 'reviewer@example.test' },
 		appCommandMetadata: { appCommandId: 2 },
 	});
 
 	assert.equal(authChatUserId, 'users/123');
+	assert.equal(authEmail, 'reviewer@example.test');
 	assert.equal(getResponseText(installResponse), getResponseText(infoResponse));
 	assert.match(
 		getResponseText(installResponse),
@@ -594,6 +655,33 @@ test('install event without user returns clear error and does not build auth url
 		getResponseText(response),
 		/Не удалось определить пользователя Google Chat/,
 	);
+});
+
+test('reinstall keeps an existing reviewer token', async () => {
+	let deleteCalled = false;
+	let buildAuthUrlCalled = false;
+	const trackingStorage: AppStorage = {
+		...storage,
+		async delete() {
+			deleteCalled = true;
+		},
+	};
+	const handleChatEvent = createChatEventHandler({
+		async buildAuthUrl() {
+			buildAuthUrlCalled = true;
+			return 'https://example.test/oauth';
+		},
+	});
+
+	const response = await handleChatEvent(config, trackingStorage, {
+		type: 'ADDED_TO_SPACE',
+		user: { name: 'users/123', email: 'reviewer@example.test' },
+		space: { name: 'spaces/AAA' },
+	});
+
+	assert.equal(deleteCalled, false);
+	assert.equal(buildAuthUrlCalled, false);
+	assert.match(getResponseText(response), /Авторизация уже пройдена/);
 });
 
 test('/review opens employee lookup card', async () => {
@@ -674,7 +762,9 @@ test('/review without token returns auth card for standalone command event', asy
 		},
 	};
 	const handleChatEvent = createChatEventHandler({
-		async buildAuthUrl() {
+		async buildAuthUrl(_config, chatUserId, email) {
+			assert.equal(chatUserId, 'users/123');
+			assert.equal(email, 'reviewer@example.test');
 			return 'https://example.test/oauth';
 		},
 		async sendChatMessage(_config, spaceName) {
@@ -683,7 +773,7 @@ test('/review without token returns auth card for standalone command event', asy
 	});
 
 	const response = await handleChatEvent(config, emptyStorage, {
-		user: { name: 'users/123' },
+		user: { name: 'users/123', email: 'reviewer@example.test' },
 		space: {
 			name: 'spaces/from-command',
 		},
@@ -703,7 +793,9 @@ test('/review without token returns auth card for standalone slash command paylo
 		},
 	};
 	const handleChatEvent = createChatEventHandler({
-		async buildAuthUrl() {
+		async buildAuthUrl(_config, chatUserId, email) {
+			assert.equal(chatUserId, 'users/123');
+			assert.equal(email, 'reviewer@example.test');
 			return 'https://example.test/oauth';
 		},
 		async sendChatMessage(_config, spaceName) {
@@ -713,7 +805,7 @@ test('/review without token returns auth card for standalone slash command paylo
 
 	const response = await handleChatEvent(config, emptyStorage, {
 		type: 'MESSAGE',
-		user: { name: 'users/123' },
+		user: { name: 'users/123', email: 'reviewer@example.test' },
 		space: { name: 'spaces/STANDALONE' },
 		message: {
 			text: '/review',
@@ -741,7 +833,9 @@ test('/review employee suggestions close dialog and send auth message when token
 	};
 	const sentMessages: string[] = [];
 	const handleChatEvent = createHandler({
-		async buildAuthUrl() {
+		async buildAuthUrl(_config, chatUserId, email) {
+			assert.equal(chatUserId, 'users/123');
+			assert.equal(email, 'reviewer@example.test');
 			return 'https://example.test/oauth';
 		},
 		async sendChatMessage(_config, _spaceName, text) {
@@ -775,7 +869,9 @@ test('/review employee suggestions close dialog and send auth message on invalid
 				'{"error":"invalid_grant","error_description":"Token has been expired or revoked."}',
 			);
 		},
-		async buildAuthUrl() {
+		async buildAuthUrl(_config, chatUserId, email) {
+			assert.equal(chatUserId, 'users/123');
+			assert.equal(email, 'reviewer@example.test');
 			return 'https://example.test/oauth';
 		},
 		async sendChatMessage(_config, _spaceName, text) {
@@ -807,7 +903,9 @@ test('/review submit sends auth link to chat when workflow fails with invalid_gr
 		async createReviewFolder() {
 			throw new Error('invalid_grant');
 		},
-		async buildAuthUrl() {
+		async buildAuthUrl(_config, chatUserId, email) {
+			assert.equal(chatUserId, 'users/123');
+			assert.equal(email, 'reviewer@example.test');
 			return 'https://example.test/oauth';
 		},
 		async sendChatMessage(_config, _spaceName, text) {
@@ -842,7 +940,9 @@ test('/review employee check returns auth message when previous review lookup fa
 		async findPreviousReviewReport() {
 			throw new Error('invalid_grant');
 		},
-		async buildAuthUrl() {
+		async buildAuthUrl(_config, chatUserId, email) {
+			assert.equal(chatUserId, 'users/123');
+			assert.equal(email, 'reviewer@example.test');
 			return 'https://example.test/oauth';
 		},
 	});
@@ -2255,6 +2355,7 @@ function reviewCommandEvent(spaceName = 'spaces/AAA'): ChatEvent {
 	return {
 		user: {
 			name: 'users/123',
+			email: 'reviewer@example.test',
 		},
 		appCommandMetadata: {
 			appCommandId: 1,
@@ -2269,6 +2370,7 @@ function settingsCommandEvent(): ChatEvent {
 	return {
 		user: {
 			name: 'users/123',
+			email: 'reviewer@example.test',
 		},
 		appCommandMetadata: {
 			appCommandId: 3,
@@ -2280,6 +2382,7 @@ function statusCommandEvent(): ChatEvent {
 	return {
 		user: {
 			name: 'users/123',
+			email: 'reviewer@example.test',
 		},
 		appCommandMetadata: {
 			appCommandId: 4,
@@ -2298,6 +2401,7 @@ function settingsSubmitEvent(overrides: {
 	return {
 		user: {
 			name: 'users/123',
+			email: 'reviewer@example.test',
 		},
 		isDialogEvent: true,
 		dialogEventType: 'SUBMIT_DIALOG',
@@ -2352,6 +2456,7 @@ function employeeSuggestionsEvent(
 	return {
 		user: {
 			name: 'users/123',
+			email: 'reviewer@example.test',
 		},
 		appCommandMetadata: {
 			appCommandId: 1,
@@ -2422,6 +2527,7 @@ function employeeCheckEvent(
 	return {
 		user: {
 			name: 'users/123',
+			email: 'reviewer@example.test',
 		},
 		isDialogEvent: true,
 		dialogEventType: 'SUBMIT_DIALOG',
@@ -2468,6 +2574,7 @@ function reviewSubmitEvent(
 	const event: ChatEvent = {
 		user: {
 			name: 'users/123',
+			email: 'reviewer@example.test',
 		},
 		isDialogEvent: true,
 		dialogEventType: 'SUBMIT_DIALOG',

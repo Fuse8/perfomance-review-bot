@@ -40,7 +40,6 @@ Promise. Основные лимиты при росте нагрузки — д
 
 - `GET /healthz` отвечает `200`
 - `POST /google-chat/events` reachable
-- `GET /auth/google/start` делает redirect
 - `GET /auth/google/callback` reachable
 
 Что нужно:
@@ -53,6 +52,7 @@ APP_BASE_URL=https://<your-vercel-domain>
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 GOOGLE_REDIRECT_URI=https://<your-vercel-domain>/auth/google/callback
+OAUTH_STATE_SECRET=<отдельная случайная строка длиной не менее 32 символов>
 DATABASE_URL=postgresql://...
 REVIEW_REPORT_TEMPLATE_ID=...
 INTERNAL_REVIEW_FORM_TEMPLATE_ID=...
@@ -61,6 +61,9 @@ EMPLOYEE_EMAIL_DOMAINS=fuse8.online,byteminds.co.uk
 ```
 
 Корневую папку нужно задать через команду `/settings` в Google Chat, вставив ссылку на папку Google Drive.
+
+`OAUTH_STATE_SECRET` подписывает OAuth-ссылки, созданные ботом в Google Chat.
+Храните один активный ключ; его смена инвалидирует ещё не использованные ссылки.
 
 Если `/healthz` отвечает `503` с `error`, в теле будет текст вроде `Missing required env var: ...` — добавьте переменные в Vercel → Settings → Environment Variables и redeploy.
 

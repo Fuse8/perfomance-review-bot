@@ -25,6 +25,7 @@
 - [0019 Docs task archive structure](0019-docs-task-archive-structure.md) — Completed: 2026-07-01
 - [0020 Forms response spreadsheets](0020-forms-response-spreadsheets.md) — Completed: 2026-07-01
 - [0021 README format skill](0021-readme-format-skill.md) — Completed: 2026-07-01
+- [0022 Auth storage lifecycle](0022-auth-storage-lifecycle.md) — Completed: 2026-08-19
 - [0023 Reviewer Drive folder link](0023-reviewer-drive-folder-link.md) — Completed: 2026-08-18
 - [0024 Employee folder auto create](0024-employee-folder-auto-create.md) — Completed: 2026-08-19
 - [0025 Intuitive Bot Instructions](0025-intuitive-bot-instructions.md) — Completed: 2026-08-19

@@ -204,6 +204,7 @@ export function createChatEventHandler(
 		event: ChatEvent,
 	): Promise<ChatResponse> {
 		const chatUserId = event.user?.name ?? undefined;
+		const chatUserEmail = resolveChatUserEmail(event);
 		const appCommandId = resolveAppCommandId(event);
 		const invokedFunction = event.common?.invokedFunction ?? undefined;
 		const actionName = resolveActionName(event);
@@ -214,6 +215,7 @@ export function createChatEventHandler(
 			actionName,
 			invokedFunction,
 			hasChatUserId: Boolean(chatUserId),
+			hasChatUserEmail: Boolean(chatUserEmail),
 			formInputKeys: Object.keys(formInputs),
 			dialogEventType: event.dialogEventType,
 			isDialogEvent: event.isDialogEvent,
@@ -222,7 +224,7 @@ export function createChatEventHandler(
 
 		if (event.type === ADDED_TO_SPACE_EVENT) {
 			logChatEvent('route.addedToSpace');
-			return handleAddedToSpace(config, storage, chatUserId, resolvedDeps);
+			return handleAddedToSpace(config, storage, event, resolvedDeps);
 		}
 
 		if (isEmployeeSuggestionsEvent(config, event, invokedFunction)) {
@@ -238,7 +240,7 @@ export function createChatEventHandler(
 
 		if (appCommandId === INFO_COMMAND_ID) {
 			logChatEvent('route.info');
-			return buildInfoResponse(config, storage, chatUserId, resolvedDeps);
+			return buildInfoResponse(config, storage, event, resolvedDeps);
 		}
 
 		if (!chatUserId) {
@@ -336,23 +338,25 @@ export const handleChatEvent = createChatEventHandler();
 async function handleAddedToSpace(
 	config: AppConfig,
 	storage: AppStorage,
-	chatUserId: string | undefined,
+	event: ChatEvent,
 	deps: ChatEventHandlerDeps,
 ): Promise<ChatResponse> {
+	const chatUserId = event.user?.name ?? undefined;
 	if (!chatUserId) {
 		logChatEvent('addedToSpace.missingUser');
 		return textResponse('Не удалось определить пользователя Google Chat.');
 	}
 
-	return buildInfoResponse(config, storage, chatUserId, deps);
+	return buildInfoResponse(config, storage, event, deps);
 }
 
 async function buildInfoResponse(
 	config: AppConfig,
 	storage: AppStorage,
-	chatUserId: string | undefined,
+	event: ChatEvent,
 	deps: ChatEventHandlerDeps,
 ): Promise<ChatResponse> {
+	const chatUserId = event.user?.name ?? undefined;
 	if (!chatUserId) {
 		return textResponse(buildInfoMessage(config, { isAuthorized: false }));
 	}
@@ -362,7 +366,13 @@ async function buildInfoResponse(
 		return textResponse(buildInfoMessage(config, { isAuthorized: true }));
 	}
 
-	const authUrl = await deps.buildAuthUrl(config, storage, chatUserId);
+	const authUrl = await buildChatAuthUrl(config, event, chatUserId, deps);
+	if (!authUrl) {
+		return textResponse(
+			`${buildInfoMessage(config, { isAuthorized: false })}\n\n${missingChatEmailMessage()}`,
+		);
+	}
+
 	return textResponse(
 		buildInfoMessage(config, { isAuthorized: false, authUrl }),
 	);
@@ -1750,11 +1760,26 @@ async function deliverWorkflowAuthRequired(
 	});
 
 	await params.storage.delete(params.chatUserId);
-	const authUrl = await deps.buildAuthUrl(
+	const authUrl = await buildChatAuthUrl(
 		params.config,
-		params.storage,
+		params.event,
 		params.chatUserId,
+		deps,
 	);
+	if (!authUrl) {
+		const errorText = missingChatEmailMessage();
+		await deliverWorkflowResultToChat(
+			params.config,
+			deps,
+			params.event,
+			errorText,
+		);
+		return {
+			textLength: errorText.length,
+			remindersCount: 0,
+			hasCalendar: false,
+		};
+	}
 	const errorText = formatAuthRequiredMessage(authUrl);
 	await deliverWorkflowResultToChat(
 		params.config,
@@ -1788,7 +1813,12 @@ async function respondReviewerAuthRequired(
 		await storage.delete(chatUserId);
 	}
 
-	const authUrl = await deps.buildAuthUrl(config, storage, chatUserId);
+	const authUrl = await buildChatAuthUrl(config, event, chatUserId, deps);
+	if (!authUrl) {
+		logChatEvent('auth.required.missingEmail', { chatUserId, kind });
+		return textResponse(missingChatEmailMessage());
+	}
+
 	logChatEvent('auth.required', {
 		chatUserId,
 		kind,
@@ -1817,6 +1847,24 @@ async function respondReviewerAuthRequired(
 		reason: 'missingSpaceName',
 	});
 	return textResponse(message);
+}
+
+function missingChatEmailMessage(): string {
+	return 'Не удалось определить email пользователя Google Chat. Запустите команду заново или обратитесь к администратору бота.';
+}
+
+function resolveChatUserEmail(event: ChatEvent): string | undefined {
+	return event.user?.email?.trim().toLowerCase() || undefined;
+}
+
+async function buildChatAuthUrl(
+	config: AppConfig,
+	event: ChatEvent,
+	chatUserId: string,
+	deps: ChatEventHandlerDeps,
+): Promise<string | null> {
+	const email = resolveChatUserEmail(event);
+	return email ? deps.buildAuthUrl(config, chatUserId, email) : null;
 }
 
 function respondDialogSubmitAck(

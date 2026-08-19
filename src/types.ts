@@ -7,13 +7,6 @@ export type ReviewerToken = {
 	createdAt: string;
 };
 
-export type OAuthState = {
-	state: string;
-	chatUserId: string;
-	expiresAt: string;
-	createdAt: string;
-};
-
 export type ReviewerSettings = {
 	chatUserId: string;
 	rootFolderId: string;

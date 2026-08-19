@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import { test } from 'vitest';
 import type { AppConfig } from './config.js';
 import { createApp } from './app.js';
+import { OAuthEmailMismatchError, OAuthStateError } from './oauth.js';
 import type { AppStorage } from './storage.js';
 
 const config: AppConfig = {
@@ -10,6 +11,7 @@ const config: AppConfig = {
 	googleClientId: 'client-id',
 	googleClientSecret: 'client-secret',
 	googleRedirectUri: 'https://example.test/auth/google/callback',
+	oauthStateSecret: 'test-oauth-state-secret-at-least-32-characters',
 	chatServiceAccountKeyFile: undefined,
 	chatServiceAccountCredentials: undefined,
 	reviewReportTemplateId: 'report-template-id',
@@ -30,10 +32,6 @@ const storage: AppStorage = {
 	},
 	async save() {},
 	async delete() {},
-	async saveOAuthState() {},
-	async consumeOAuthState() {
-		return null;
-	},
 	async getReviewerSettings() {
 		return null;
 	},
@@ -49,24 +47,83 @@ test('createApp serves healthz for Vercel/runtime checks', async () => {
 	assert.deepEqual(JSON.parse(response.body), { ok: true });
 });
 
-test('createApp redirects auth start requests', async () => {
+test('createApp does not expose a public auth start route', async () => {
+	const response = await invokeApp(
+		createApp(config, storage),
+		'GET',
+		'/auth/google/start?chatUserId=users/123',
+	);
+
+	assert.equal(response.statusCode, 404);
+});
+
+test('OAuth callback returns a helpful HTML 400 for invalid state', async () => {
 	const app = createApp(config, storage, {
-		async buildAuthUrl() {
-			return 'https://accounts.google.com/o/oauth2/v2/auth?state=test';
+		async completeOAuth() {
+			throw new OAuthStateError();
 		},
 	});
 
 	const response = await invokeApp(
 		app,
 		'GET',
-		'/auth/google/start?chatUserId=users/123',
+		'/auth/google/callback?code=test-code&state=invalid',
 	);
 
-	assert.equal(response.statusCode, 302);
-	assert.equal(
-		response.headers.location,
-		'https://accounts.google.com/o/oauth2/v2/auth?state=test',
+	assert.equal(response.statusCode, 400);
+	assert.match(response.headers['content-type'] ?? '', /html/);
+	assert.match(response.body, /запросите новую ссылку в Google Chat/i);
+});
+
+test('OAuth callback returns escaped expected and actual emails on mismatch', async () => {
+	const app = createApp(config, storage, {
+		async completeOAuth() {
+			throw new OAuthEmailMismatchError(
+				'expected+<tag>@example.com',
+				'actual+<tag>@example.com',
+			);
+		},
+	});
+
+	const response = await invokeApp(
+		app,
+		'GET',
+		'/auth/google/callback?code=test-code&state=valid',
 	);
+
+	assert.equal(response.statusCode, 400);
+	assert.match(response.body, /expected\+&lt;tag&gt;@example\.com/);
+	assert.match(response.body, /actual\+&lt;tag&gt;@example\.com/);
+	assert.doesNotMatch(response.body, /<tag>/);
+});
+
+test('OAuth callback confirms the connected account', async () => {
+	const app = createApp(config, storage, {
+		async completeOAuth() {
+			return 'reviewer@example.com';
+		},
+	});
+
+	const response = await invokeApp(
+		app,
+		'GET',
+		'/auth/google/callback?code=test-code&state=valid',
+	);
+
+	assert.equal(response.statusCode, 200);
+	assert.match(response.headers['content-type'] ?? '', /html/);
+	assert.match(response.body, /reviewer@example\.com/);
+});
+
+test('OAuth callback rejects missing code or state', async () => {
+	for (const url of [
+		'/auth/google/callback?state=test-state',
+		'/auth/google/callback?code=test-code',
+	]) {
+		const response = await invokeApp(createApp(config, storage), 'GET', url);
+		assert.equal(response.statusCode, 400);
+		assert.match(response.body, /Missing code or state/);
+	}
 });
 
 async function invokeApp(

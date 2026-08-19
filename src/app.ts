@@ -1,18 +1,20 @@
 import express from 'express';
 import type { AppConfig } from './config.js';
 import { handleChatEvent } from './chat.js';
-import { buildAuthUrl, completeOAuth } from './oauth.js';
+import {
+	completeOAuth,
+	OAuthEmailMismatchError,
+	OAuthStateError,
+} from './oauth.js';
 import type { AppStorage } from './storage.js';
 
 type AppDeps = {
 	handleChatEvent: typeof handleChatEvent;
-	buildAuthUrl: typeof buildAuthUrl;
 	completeOAuth: typeof completeOAuth;
 };
 
 const defaultDeps: AppDeps = {
 	handleChatEvent,
-	buildAuthUrl,
 	completeOAuth,
 };
 
@@ -38,22 +40,6 @@ export function createApp(
 				req.body,
 			);
 			res.json(response);
-		} catch (error) {
-			next(error);
-		}
-	});
-
-	app.get('/auth/google/start', async (req, res, next) => {
-		try {
-			const chatUserId = String(req.query.chatUserId ?? '');
-			if (!chatUserId) {
-				res.status(400).send('Missing chatUserId');
-				return;
-			}
-
-			res.redirect(
-				await resolvedDeps.buildAuthUrl(config, storage, chatUserId),
-			);
 		} catch (error) {
 			next(error);
 		}
@@ -86,8 +72,36 @@ export function createApp(
         </html>
       `);
 		} catch (error) {
+			if (error instanceof OAuthStateError) {
+				res
+					.status(400)
+					.type('html')
+					.send(
+						callbackErrorPage(
+							'Ссылка авторизации недействительна',
+							'Ссылка повреждена или устарела. Запросите новую ссылку в Google Chat.',
+						),
+					);
+				return;
+			}
+			if (error instanceof OAuthEmailMismatchError) {
+				res
+					.status(400)
+					.type('html')
+					.send(
+						callbackErrorPage(
+							'Выбран другой Google-аккаунт',
+							`Ожидался аккаунт ${error.expectedEmail}, но выбран ${error.actualEmail}. Вернитесь в Google Chat и запросите новую ссылку.`,
+						),
+					);
+				return;
+			}
 			next(error);
 		}
+	});
+
+	app.use((_req, res) => {
+		res.status(404).send('Not Found');
 	});
 
 	app.use(
@@ -109,6 +123,19 @@ export function createApp(
 	);
 
 	return app;
+}
+
+function callbackErrorPage(title: string, message: string): string {
+	return `
+    <!doctype html>
+    <html lang="ru">
+      <head><meta charset="utf-8"><title>${escapeHtml(title)}</title></head>
+      <body>
+        <h1>${escapeHtml(title)}</h1>
+        <p>${escapeHtml(message)}</p>
+      </body>
+    </html>
+  `;
 }
 
 function escapeHtml(value: string): string {

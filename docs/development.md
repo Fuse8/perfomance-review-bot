@@ -13,6 +13,9 @@
 5. Добавить `.env` на основе `.env.example`.
    Заполнить из ngrok `APP_BASE_URL` и `GOOGLE_REDIRECT_URI`.
    Нужен локальный `DATABASE_URL` и `GOOGLE_SERVICE_ACCOUNT_KEY_FILE=/absolute/path/to/service-account.json`.
+   Для подписи короткоживущих OAuth-ссылок задать отдельный
+   `OAUTH_STATE_SECRET` длиной не менее 32 символов. При его смене ранее
+   созданные ссылки перестанут работать.
 
 6. Запуск
 
