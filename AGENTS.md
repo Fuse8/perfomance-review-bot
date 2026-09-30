@@ -21,6 +21,7 @@ Core project information, technology stack, environment configuration, and avail
 - After finishing implementation, wait for user review. If review requests changes, implement them without archiving or committing the task.
 - Do not move a task to the archive until the user explicitly says that the task is ready.
 - When the user says that the task is ready, move it from `docs/tasks/active/` to `docs/tasks/archive/`, add `Completed: YYYY-MM-DD`, fill `Результат`, append its link to `docs/tasks/archive/README.md`, and remove it from `docs/tasks/roadmap.md`.
+- When the user confirms a task is complete, bump the version in `package.json` once before the task commit. Use a patch bump by default; use a minor or major bump when explicitly requested. Include the version change in the task commit.
 - After the user says that the task is ready, stage only files belonging to the task and create a Conventional Commit with the task number immediately after the type, for example `docs: 0030 organize task workflow`.
 - When archiving a task, update `docs/adr.md` if the task introduced a durable technical or product decision.
 

@@ -13,7 +13,7 @@ export function isOAuthAuthError(error: unknown): boolean {
 export function formatAuthRequiredMessage(authUrl: string): string {
 	return [
 		'Нужно подключить Google-аккаунт ревьюера.',
-		'Откройте ссылку, пройдите OAuth и повторите /review:',
+		'Откройте ссылку, пройдите авторизацию и повторите команду:',
 		authUrl,
 	].join('\n');
 }

@@ -363,7 +363,13 @@ async function buildInfoResponse(
 
 	const token = await storage.get(chatUserId);
 	if (token) {
-		return textResponse(buildInfoMessage(config, { isAuthorized: true }));
+		const authUrl = await buildChatAuthUrl(config, event, chatUserId, deps);
+		return textResponse(
+			buildInfoMessage(config, {
+				isAuthorized: true,
+				authUrl: authUrl ?? undefined,
+			}),
+		);
 	}
 
 	const authUrl = await buildChatAuthUrl(config, event, chatUserId, deps);
@@ -401,7 +407,7 @@ function buildInfoMessage(
 		),
 	];
 	const authStep = auth.isAuthorized
-		? '1. Пройдите авторизацию. (Авторизация уже пройдена)'
+		? `1. Google-аккаунт сохранён. Доступ будет проверен при выполнении команды.${auth.authUrl ? ` ${formatChatTextLink(auth.authUrl, 'Подключить заново')}.` : ''}`
 		: auth.authUrl
 			? `1. ${formatChatTextLink(auth.authUrl, 'Пройдите авторизацию')}.`
 			: '1. Пройдите авторизацию через /review или /settings.';
@@ -509,6 +515,17 @@ async function handleReviewerSettingsSubmit(
 	} catch (error) {
 		const message = error instanceof Error ? error.message : 'Unknown error';
 		logChatEvent('settings.validateRootFolder.failed', { message });
+		if (isOAuthAuthError(error)) {
+			return respondReviewerAuthRequired(
+				config,
+				storage,
+				chatUserId,
+				deps,
+				event,
+				'chat_message',
+				{ clearStaleToken: true },
+			);
+		}
 		return dialogResponse(
 			reviewerSettingsCard(config, parsed.value, {
 				error: 'Папка должна быть доступна через Google Drive.',
@@ -576,6 +593,17 @@ async function handleReviewStatusCommand(
 	} catch (error) {
 		const message = error instanceof Error ? error.message : 'Unknown error';
 		logChatEvent('status.failed', { message });
+		if (isOAuthAuthError(error)) {
+			return respondReviewerAuthRequired(
+				config,
+				storage,
+				chatUserId,
+				deps,
+				event,
+				'dialog_card',
+				{ clearStaleToken: true },
+			);
+		}
 		return textResponse(`Ошибка Google Drive: ${message}`);
 	}
 }

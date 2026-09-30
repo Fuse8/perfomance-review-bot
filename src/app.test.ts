@@ -214,3 +214,20 @@ async function invokeApp(
 		body: Buffer.concat(chunks).toString('utf8'),
 	};
 }
+
+test('OAuth callback shows retry instructions when Google rejects the grant', async () => {
+	const app = createApp(config, storage, {
+		async completeOAuth() {
+			throw new Error('invalid_grant');
+		},
+	});
+	const response = await invokeApp(
+		app,
+		'GET',
+		'/auth/google/callback?code=test-code&state=valid',
+	);
+	assert.equal(response.statusCode, 400);
+	assert.match(response.headers['content-type'] ?? '', /html/);
+	assert.match(response.body, /вызовите \/info/);
+	assert.doesNotMatch(response.body, /test-code/);
+});

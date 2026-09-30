@@ -175,7 +175,7 @@ test('/info returns bot version and review command help', async () => {
 			'',
 			'*Перед первым /review*',
 			'',
-			'1. Пройдите авторизацию. (Авторизация уже пройдена)',
+			'1. Google-аккаунт сохранён. Доступ будет проверен при выполнении команды.',
 			'',
 			'2. Проверьте доступ к шаблонам (если доступа нет — обратитесь к HR):',
 			'  • <https://docs.google.com/document/d/report-template-id/edit|шаблон отчёта>',
@@ -685,8 +685,9 @@ test('reinstall keeps an existing reviewer token', async () => {
 	});
 
 	assert.equal(deleteCalled, false);
-	assert.equal(buildAuthUrlCalled, false);
-	assert.match(getResponseText(response), /Авторизация уже пройдена/);
+	assert.equal(buildAuthUrlCalled, true);
+	assert.match(getResponseText(response), /Google-аккаунт сохранён/);
+	assert.match(getResponseText(response), /Подключить заново/);
 });
 
 test('/review opens employee lookup card', async () => {
@@ -2743,3 +2744,85 @@ function getResponseText(response: Record<string, unknown>): string {
 	}
 	return '';
 }
+
+test('/status clears a rejected token and offers reauthorization; info then reflects it', async () => {
+	let deleted = false;
+	const trackingStorage: AppStorage = {
+		...storage,
+		async get() {
+			return deleted ? null : storage.get();
+		},
+		async delete(id) {
+			assert.equal(id, 'users/123');
+			deleted = true;
+		},
+	};
+	const handler = createHandler({
+		async listReviewStatuses() {
+			throw new Error('invalid_grant');
+		},
+		async buildAuthUrl() {
+			return 'https://example.test/oauth';
+		},
+	});
+	const result = await handler(config, trackingStorage, statusCommandEvent());
+	assert.equal(deleted, true);
+	assert.match(JSON.stringify(result), /https:\/\/example.test\/oauth/);
+	const info = await handler(config, trackingStorage, {
+		user: { name: 'users/123', email: 'reviewer@example.test' },
+		appCommandMetadata: { appCommandId: 2 },
+	});
+	assert.doesNotMatch(getResponseText(info), /Google-аккаунт сохранён/);
+	assert.match(getResponseText(info), /Пройдите авторизацию/);
+});
+
+test('/settings submit closes dialog and sends reauthorization without saving settings', async () => {
+	let deleted = false;
+	const messages: string[] = [];
+	const handler = createHandler({
+		async validateReviewerRootFolder() {
+			throw new Error('invalid_grant');
+		},
+		async buildAuthUrl() {
+			return 'https://example.test/oauth';
+		},
+		async sendChatMessage(_config, _space, text) {
+			messages.push(text);
+		},
+	});
+	const result = await handler(
+		config,
+		{
+			...storage,
+			async delete() {
+				deleted = true;
+			},
+			async saveReviewerSettings() {
+				assert.fail('must not save settings');
+			},
+		},
+		{ ...settingsSubmitEvent({}), space: { name: 'spaces/AAA' } },
+	);
+	assert.equal(deleted, true);
+	assert.match(messages[0] ?? '', /https:\/\/example.test\/oauth/);
+	assert.match(JSON.stringify(result), /OK/);
+});
+
+test('/status keeps token on a non-auth Drive failure', async () => {
+	const handler = createHandler({
+		async listReviewStatuses() {
+			throw new Error('File not found');
+		},
+	});
+	const result = await handler(
+		config,
+		{
+			...storage,
+			async delete() {
+				assert.fail('must retain token');
+			},
+		},
+		statusCommandEvent(),
+	);
+	assert.match(getResponseText(result), /Ошибка Google Drive: File not found/);
+});

@@ -32,3 +32,4 @@
 - [0026 Обновить вывод workflow Performance Review](0026-review-workflow-output.md) — Completed: 2026-08-19
 - [0030 Организовать active и archive как в Pokkels](0030-organize-task-workflow.md) — Completed: 2026-08-19
 - [0031 Единый запуск локальной среды](0031-local-development-command.md) — Completed: 2026-08-18
+- [0032 Восстановление авторизации Google](0032-oauth-recovery.md) — Completed: 2026-09-30

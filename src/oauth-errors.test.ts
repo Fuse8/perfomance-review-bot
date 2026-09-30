@@ -24,5 +24,5 @@ test('isOAuthAuthError ignores unrelated errors', () => {
 test('formatAuthRequiredMessage includes auth url', () => {
 	const message = formatAuthRequiredMessage('https://example.test/oauth');
 	assert.match(message, /https:\/\/example\.test\/oauth/);
-	assert.match(message, /повторите \/review/);
+	assert.match(message, /повторите команду/);
 });

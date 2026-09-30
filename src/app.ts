@@ -1,3 +1,4 @@
+import { isOAuthAuthError } from './oauth-errors.js';
 import express from 'express';
 import type { AppConfig } from './config.js';
 import { handleChatEvent } from './chat.js';
@@ -92,6 +93,18 @@ export function createApp(
 						callbackErrorPage(
 							'Выбран другой Google-аккаунт',
 							`Ожидался аккаунт ${error.expectedEmail}, но выбран ${error.actualEmail}. Вернитесь в Google Chat и запросите новую ссылку.`,
+						),
+					);
+				return;
+			}
+			if (isOAuthAuthError(error)) {
+				res
+					.status(400)
+					.type('html')
+					.send(
+						callbackErrorPage(
+							'Не удалось завершить авторизацию',
+							'Google отклонил авторизацию. Вернитесь в Google Chat, вызовите /info и откройте новую ссылку авторизации. Не обновляйте эту страницу.',
 						),
 					);
 				return;
