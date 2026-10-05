@@ -3,7 +3,7 @@ import { test } from 'vitest';
 import type { AppConfig } from './config.js';
 import { createChatEventHandler, getDirectorySearchQuery } from './chat.js';
 import type { AppStorage } from './storage.js';
-import type { ChatEvent, ReviewerSettings } from './types.js';
+import type { ChatCard, ChatEvent, ReviewerSettings } from './types.js';
 
 const config: AppConfig = {
 	appBaseUrl: 'https://example.test',
@@ -396,6 +396,109 @@ test('/settings opens dialog with default values', async () => {
 		taskReminderTime: '12:00',
 		reviewIntervalMonths: '6',
 	});
+});
+
+test('/settings groups reminder fields with their time and a shared explanation', async () => {
+	const response = await createHandler()(
+		config,
+		storage,
+		settingsCommandEvent(),
+	);
+	const card = getUpdatedCard(response) as ChatCard;
+	assert.deepEqual(
+		card.sections?.map((candidate) => candidate.header),
+		['Основные настройки', 'Напоминания перед ревью', 'Шаблоны'],
+	);
+	assert.deepEqual(
+		card.sections?.[0].widgets?.map((widget) => widget.textInput?.name),
+		['rootFolderUrl', 'reviewIntervalMonths'],
+	);
+	assert.ok(card.sections?.[2].widgets?.every((widget) => !widget.textInput));
+	const section = card.sections?.find(
+		(candidate) => candidate.header === 'Напоминания перед ревью',
+	);
+	assert.ok(section);
+	assert.equal(section.collapsible, undefined);
+	assert.equal(section.collapseControl, undefined);
+	assert.equal(section.widgets?.length, 5);
+	assert.equal(
+		section.widgets?.[0].textParagraph?.text,
+		'За сколько дней до встречи напомнить о каждом этапе (будут созданы задачи):',
+	);
+	assert.deepEqual(
+		section.widgets?.slice(1).map((widget) => widget.textInput),
+		[
+			{
+				name: 'taskCollectDaysBefore',
+				label: 'Сбор отзывов — за сколько дней',
+				value: '14',
+			},
+			{
+				name: 'taskCheckDaysBefore',
+				label: 'Проверка отзывов — за сколько дней',
+				value: '7',
+			},
+			{
+				name: 'taskPrepareDaysBefore',
+				label: 'Подготовка к встрече — за сколько дней',
+				value: '3',
+			},
+			{
+				name: 'taskReminderTime',
+				label: 'Время напоминаний (HH:mm, Челябинск)',
+				value: '12:00',
+				validation: { characterLimit: 5 },
+			},
+		],
+	);
+});
+
+for (const [name, label] of [
+	['taskCollectDaysBefore', 'Сбор отзывов — за сколько дней'],
+	['taskCheckDaysBefore', 'Проверка отзывов — за сколько дней'],
+	['taskPrepareDaysBefore', 'Подготовка к встрече — за сколько дней'],
+]) {
+	test(`/settings validates ${name} with its visible label`, async () => {
+		let saveCalled = false;
+		const response = await createHandler()(
+			config,
+			{
+				...storage,
+				async saveReviewerSettings() {
+					saveCalled = true;
+				},
+			},
+			settingsSubmitEvent({ [name]: '-1' }),
+		);
+		assert.equal(
+			getResponseText(response),
+			`${label}: укажите целое число 0 или больше.`,
+		);
+		assert.equal(saveCalled, false);
+	});
+}
+
+test('/settings displays stored reminder offsets including zero', async () => {
+	const response = await createHandler()(
+		config,
+		{
+			...storage,
+			async getReviewerSettings() {
+				const settings = await storage.getReviewerSettings();
+				return {
+					...settings,
+					taskCollectDaysBefore: 10,
+					taskCheckDaysBefore: 0,
+					taskPrepareDaysBefore: 2,
+				};
+			},
+		},
+		settingsCommandEvent(),
+	);
+	const values = findTextInputValues(getUpdatedCard(response));
+	assert.equal(values.taskCollectDaysBefore, '10');
+	assert.equal(values.taskCheckDaysBefore, '0');
+	assert.equal(values.taskPrepareDaysBefore, '2');
 });
 
 test('/settings shows read-only text links to the configured templates', async () => {

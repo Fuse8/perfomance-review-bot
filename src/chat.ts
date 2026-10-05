@@ -1298,15 +1298,15 @@ function parseReviewerSettings(
 	const rootFolderUrl = getStringInput(inputs.rootFolderUrl).trim();
 	const taskCollectDaysBefore = parseNonNegativeIntegerInput(
 		inputs.taskCollectDaysBefore,
-		'Дней до сбора отзывов',
+		'Сбор отзывов — за сколько дней',
 	);
 	const taskCheckDaysBefore = parseNonNegativeIntegerInput(
 		inputs.taskCheckDaysBefore,
-		'Дней до проверки отзывов',
+		'Проверка отзывов — за сколько дней',
 	);
 	const taskPrepareDaysBefore = parseNonNegativeIntegerInput(
 		inputs.taskPrepareDaysBefore,
-		'Дней до подготовки',
+		'Подготовка к встрече — за сколько дней',
 	);
 	const taskReminderTime = getStringInput(inputs.taskReminderTime).trim();
 	const reviewIntervalMonths = parsePositiveIntegerInput(
@@ -1352,7 +1352,7 @@ function parseReviewerSettings(
 		return {
 			ok: false,
 			error:
-				'Время задач должно быть в формате HH:mm, диапазон 00:00-23:59. Например: 12:00.',
+				'Время напоминаний должно быть в формате HH:mm, диапазон 00:00-23:59. Например: 12:00.',
 		};
 	}
 
@@ -2346,6 +2346,7 @@ function reviewerSettingsCard(
 		},
 		sections: [
 			{
+				header: 'Основные настройки',
 				widgets: [
 					...(options.error
 						? [
@@ -2367,43 +2368,6 @@ function reviewerSettingsCard(
 					},
 					{
 						textInput: {
-							name: 'taskCollectDaysBefore',
-							label: 'Дней до сбора отзывов',
-							value: String(
-								settings?.taskCollectDaysBefore ?? config.taskCollectDaysBefore,
-							),
-						},
-					},
-					{
-						textInput: {
-							name: 'taskCheckDaysBefore',
-							label: 'Дней до проверки отзывов',
-							value: String(
-								settings?.taskCheckDaysBefore ?? config.taskCheckDaysBefore,
-							),
-						},
-					},
-					{
-						textInput: {
-							name: 'taskPrepareDaysBefore',
-							label: 'Дней до подготовки',
-							value: String(
-								settings?.taskPrepareDaysBefore ?? config.taskPrepareDaysBefore,
-							),
-						},
-					},
-					{
-						textInput: {
-							name: 'taskReminderTime',
-							label: 'Время задач (HH:mm, Челябинск)',
-							value: settings?.taskReminderTime ?? config.taskReminderTime,
-							validation: {
-								characterLimit: 5,
-							},
-						},
-					},
-					{
-						textInput: {
 							name: 'reviewIntervalMonths',
 							label: 'Периодичность ревью (месяцы)',
 							value: String(
@@ -2412,9 +2376,61 @@ function reviewerSettingsCard(
 							),
 						},
 					},
+				],
+			},
+			{
+				header: 'Напоминания перед ревью',
+				widgets: [
 					{
 						textParagraph: {
-							text: '<b>Используемые шаблоны</b><br>Шаблоны задаются администратором и доступны здесь только для просмотра.<br>(Проверьте, что у вас есть доступ к этим шаблонам — он необходим для создания ревью.)',
+							text: 'За сколько дней до встречи напомнить о каждом этапе (будут созданы задачи):',
+						},
+					},
+					{
+						textInput: {
+							name: 'taskCollectDaysBefore',
+							label: 'Сбор отзывов — за сколько дней',
+							value: String(
+								settings?.taskCollectDaysBefore ?? config.taskCollectDaysBefore,
+							),
+						},
+					},
+					{
+						textInput: {
+							name: 'taskCheckDaysBefore',
+							label: 'Проверка отзывов — за сколько дней',
+							value: String(
+								settings?.taskCheckDaysBefore ?? config.taskCheckDaysBefore,
+							),
+						},
+					},
+					{
+						textInput: {
+							name: 'taskPrepareDaysBefore',
+							label: 'Подготовка к встрече — за сколько дней',
+							value: String(
+								settings?.taskPrepareDaysBefore ?? config.taskPrepareDaysBefore,
+							),
+						},
+					},
+					{
+						textInput: {
+							name: 'taskReminderTime',
+							label: 'Время напоминаний (HH:mm, Челябинск)',
+							value: settings?.taskReminderTime ?? config.taskReminderTime,
+							validation: {
+								characterLimit: 5,
+							},
+						},
+					},
+				],
+			},
+			{
+				header: 'Шаблоны',
+				widgets: [
+					{
+						textParagraph: {
+							text: 'Шаблоны задаются администратором и доступны здесь только для просмотра.<br>(Проверьте, что у вас есть доступ к этим шаблонам — он необходим для создания ревью.)',
 						},
 					},
 					...(config.reviewReportTemplateId

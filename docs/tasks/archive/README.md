@@ -33,3 +33,4 @@
 - [0030 Организовать active и archive как в Pokkels](0030-organize-task-workflow.md) — Completed: 2026-08-19
 - [0031 Единый запуск локальной среды](0031-local-development-command.md) — Completed: 2026-08-18
 - [0032 Восстановление авторизации Google](0032-oauth-recovery.md) — Completed: 2026-09-30
+- [0033 Компактный блок напоминаний](0033-reminder-settings-help.md) — Completed: 2026-10-05
