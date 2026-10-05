@@ -40,3 +40,4 @@
 - [0036 Формат дат в отчёте ревью](0036-review-report-date-format.md)
 
 - [0037 Оформление отчётов и настройки ревьюера](0037-review-report-formatting-and-settings.md) — Completed: 2026-10-05
+- [0038 Шаблоны сообщений участникам ревью](0038-review-participant-messages.md) — Completed: 2026-10-05

@@ -19,6 +19,7 @@ export type CreatedDriveFile = {
 	id: string;
 	name: string;
 	webViewLink: string;
+	responderUri?: string;
 };
 
 export type EmployeeFolder = {
@@ -186,7 +187,10 @@ type FormsSettingsResource = {
 	): Promise<unknown>;
 };
 
-type FormsResource = FormsPublishResource & FormsSettingsResource;
+type FormsResource = FormsPublishResource &
+	FormsSettingsResource & {
+		get?(params: { formId: string }): Promise<{ data: forms_v1.Schema$Form }>;
+	};
 
 type DriveResource = {
 	files: DriveFilesResource;
@@ -1210,7 +1214,7 @@ async function copyFormFromTemplate(
 		throw new Error('Google Drive did not return copied form metadata');
 	}
 
-	const copiedForm = {
+	const copiedForm: CreatedDriveFile = {
 		id: data.id,
 		name: data.name,
 		webViewLink: data.webViewLink,
@@ -1238,6 +1242,15 @@ async function copyFormFromTemplate(
 		);
 	}
 
+	if (drive.forms?.get) {
+		try {
+			const { data: form } = await drive.forms.get({ formId: copiedForm.id });
+			if (form.responderUri) copiedForm.responderUri = form.responderUri;
+		} catch {
+			// The created review remains usable; Chat offers a manual link fallback.
+		}
+	}
+
 	return copiedForm;
 }
 
@@ -1257,6 +1270,12 @@ function buildClientReviewFormTitle(
 
 export function createFormsPublishClient(auth: OAuth2Client): FormsResource {
 	return {
+		async get(params) {
+			return auth.request<forms_v1.Schema$Form>({
+				url: `https://forms.googleapis.com/v1/forms/${encodeURIComponent(params.formId)}`,
+				method: 'GET',
+			});
+		},
 		async setPublishSettings(params) {
 			await auth.request({
 				url: `https://forms.googleapis.com/v1/forms/${encodeURIComponent(params.formId)}:setPublishSettings`,

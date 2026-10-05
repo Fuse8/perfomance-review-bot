@@ -1912,11 +1912,15 @@ test('/review submit creates a test folder and returns its link', async () => {
 					id: 'internal-form-id',
 					name: 'Ivan Petrov // Internal Feedback Form // 2026-06',
 					webViewLink: 'https://docs.google.com/forms/internal-form-id',
+					responderUri:
+						'https://docs.google.com/forms/d/e/internal-form/viewform',
 				},
 				clientForm: {
 					id: 'client-form-id',
 					name: 'Ivan Petrov // Client Feedback Form // 2026-06',
 					webViewLink: 'https://docs.google.com/forms/client-form-id',
+					responderUri:
+						'https://docs.google.com/forms/d/e/client-form/viewform',
 				},
 			};
 		},
@@ -1989,11 +1993,10 @@ test('/review submit creates a test folder and returns its link', async () => {
 	assert.equal(
 		messageText,
 		[
-			'Performance Review — Ivan Petrov',
-			'',
+			'*Performance Review — Ivan Petrov*',
 			'Дата ревью: 15.06.2026, 14:30 (Челябинск, UTC+5)',
 			'',
-			'План:',
+			'*План:*',
 			'04.06 → Проверка отзывов',
 			'10.06 → Подготовка к встрече',
 			'15.06 → Встреча',
@@ -2012,7 +2015,25 @@ test('/review submit creates a test folder and returns its link', async () => {
 			'Напишите им лично, продублировав ссылку на форму и с напоминанием дедлайна.',
 			'',
 			'📄 <https://docs.google.com/document/report-id|Отчёт>',
-			'Нужно выслать сотруднику: попросить заполнить свою часть отчёта до 10.06.',
+			'',
+			'*Сообщения для отправки*',
+			'',
+			'*Коллегам fuse8:*',
+			'Привет! Ivan Petrov проходит Performance Review, прошу оставить отзыв.',
+			'*Дедлайн — вечер пятницы (5 июня).*',
+			'Если по работе не пересекались, отметь это в отзыве.',
+			'https://docs.google.com/forms/d/e/internal-form/viewform',
+			'',
+			'*Клиенту:*',
+			'Привет! Ivan Petrov проходит Performance Review, прошу оставить отзыв.',
+			'*Дедлайн — вечер пятницы (5 июня).*',
+			'Если по работе не пересекались, отметь это в отзыве.',
+			'https://docs.google.com/forms/d/e/client-form/viewform',
+			'',
+			'*Самому сотруднику:*',
+			'Привет, заполни саморевью для проведения PR.',
+			'*Дедлайн — вечер четверга (11 июня).*',
+			'https://docs.google.com/document/report-id',
 		].join('\n'),
 	);
 	assert.deepEqual(response.actionResponse, {
@@ -3025,6 +3046,17 @@ for (const authFailure of [false, true]) {
 					id: 'folder',
 					name: '2026.06',
 					webViewLink: 'https://example.test/folder',
+					report: {
+						id: 'report',
+						name: 'report',
+						webViewLink: 'https://example.test/report',
+					},
+					internalForm: {
+						id: 'form',
+						name: 'form',
+						webViewLink: 'https://example.test/edit',
+						responderUri: 'https://example.test/viewform',
+					},
 				};
 			},
 			async createReviewerTasks() {
@@ -3057,6 +3089,16 @@ for (const authFailure of [false, true]) {
 		await flushBackgroundTasks();
 		assert.equal(taskCalls, 1);
 		assert.match(messages[1], /Создано задач: 1/);
+		assert.ok(
+			messages[1].includes(
+				'Привет! Ivan Petrov проходит Performance Review, прошу оставить отзыв.\n*Дедлайн — вечер пятницы (5 июня).*',
+			),
+		);
+		assert.ok(
+			messages[1].includes(
+				'Привет, заполни саморевью для проведения PR.\n*Дедлайн — вечер четверга (11 июня).*',
+			),
+		);
 		assert.ok(messages[1].includes('https://example.test/folder'));
 		assert.ok(
 			messages[1].includes(
@@ -3175,4 +3217,35 @@ test('/review rechecks all scopes before creating materials even after form was 
 	await flushBackgroundTasks();
 	assert.equal(taskChecks, 0);
 	assert.ok(messages[1].includes('https://example.test/auth'));
+});
+
+test('/review keeps template deadlines when no reviewer tasks were created', async () => {
+	const messages: string[] = [];
+	const handler = createHandler({
+		async createReviewFolder() {
+			return {
+				id: 'folder',
+				name: 'review',
+				webViewLink: 'https://example.test/folder',
+				report: {
+					id: 'report',
+					name: 'report',
+					webViewLink: 'https://example.test/report',
+				},
+			};
+		},
+		async createReviewerTasks() {
+			return [];
+		},
+		async sendChatMessage(_config, _space, text) {
+			messages.push(text);
+		},
+	});
+	await handler(config, storage, reviewSubmitEvent());
+	await flushBackgroundTasks();
+	assert.ok(
+		messages[1].includes(
+			'Привет, заполни саморевью для проведения PR.\n*Дедлайн — вечер четверга (11 июня).*\nhttps://example.test/report',
+		),
+	);
 });

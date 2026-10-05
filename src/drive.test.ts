@@ -491,6 +491,15 @@ test('createReviewFolderInDrive creates review month folder inside matched emplo
 		description?: string | null;
 	}> = [];
 	const forms = {
+		async get(params: { formId: string }) {
+			if (params.formId === 'client-form-id')
+				throw new Error('Forms unavailable');
+			return {
+				data: {
+					responderUri: `https://docs.google.com/forms/d/e/${params.formId}/viewform`,
+				},
+			};
+		},
 		async setPublishSettings(params: { formId: string }) {
 			publishedFormIds.push(params.formId);
 			return { data: {} };
@@ -567,6 +576,11 @@ test('createReviewFolderInDrive creates review month folder inside matched emplo
 		folder.clientForm?.webViewLink,
 		'https://docs.google.com/forms/client-form-id',
 	);
+	assert.equal(
+		folder.internalForm?.responderUri,
+		'https://docs.google.com/forms/d/e/internal-form-id/viewform',
+	);
+	assert.equal(folder.clientForm?.responderUri, undefined);
 	assert.deepEqual(createdParents, [['employee-folder-id']]);
 	assert.deepEqual(fetchedDocumentIds, ['previous-report-id', 'report-id']);
 	assert.deepEqual(deletedRanges, [

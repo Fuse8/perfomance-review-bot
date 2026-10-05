@@ -1,3 +1,4 @@
+import { formatReviewParticipantMessages } from './review-messages.js';
 import type { AppConfig } from './config.js';
 import { readFileSync } from 'node:fs';
 import { createCalendarEvent, type CreatedCalendarEvent } from './calendar.js';
@@ -1229,7 +1230,7 @@ async function runReviewWorkflow(
 			message,
 			count: createdTasks.length,
 		});
-		let errorText = `${formatReviewSuccessMessage(request.fullName, folder, request.needsClientForm, calendarEvent, createdTasks)}
+		let errorText = `${formatReviewSuccessMessage(request.fullName, folder, request.needsClientForm, calendarEvent, createdTasks, request.reviewDate, config)}
 
 Не удалось создать все задачи подготовки. Создано задач: ${createdTasks.length}.
 Ошибка Google Tasks: ${message}
@@ -1264,6 +1265,8 @@ async function runReviewWorkflow(
 		request.needsClientForm,
 		calendarEvent,
 		reviewerTasks,
+		request.reviewDate,
+		config,
 	);
 
 	await deliverWorkflowResultToChat(config, deps, event, successText);
@@ -1694,28 +1697,20 @@ function formatReviewSuccessMessage(
 	fullName: string,
 	folder: CreatedFolder,
 	needsClientForm: boolean,
-	calendarEvent?: CreatedCalendarEvent,
-	reviewerTasks: CreatedReviewerTask[] = [],
+	calendarEvent: CreatedCalendarEvent | undefined,
+	reviewerTasks: CreatedReviewerTask[],
+	reviewDate: string,
+	settings: AppConfig,
 ): string {
-	const reviewPrepareReminder = reviewerTasks.find(
-		(event) => event.kind === 'prepare',
-	);
-	const reviewPrepareDate = reviewPrepareReminder?.dueDate
-		? formatChatPlanDate(reviewPrepareReminder.dueDate)
-		: '';
-
 	return [
-		`Performance Review — ${fullName}`,
+		`*Performance Review — ${fullName}*`,
 		...(calendarEvent
-			? [
-					'',
-					`Дата ревью: ${formatChatFullDateTime(calendarEvent.startDateTime)}`,
-				]
+			? [`Дата ревью: ${formatChatFullDateTime(calendarEvent.startDateTime)}`]
 			: []),
 		...(calendarEvent || reviewerTasks.length
 			? [
 					'',
-					'План:',
+					'*План:*',
 					...reviewerTasks.map(
 						(event) =>
 							`${formatChatPlanDate(event.dueDate)} → ${event.webViewLink ? formatChatLink(event.webViewLink, formatPlanLabel(event.kind)) : formatPlanLabel(event.kind)}`,
@@ -1761,16 +1756,15 @@ function formatReviewSuccessMessage(
 				]
 			: []),
 		...(folder.report?.webViewLink
-			? [
-					'',
-					`📄 ${formatChatLink(folder.report.webViewLink, 'Отчёт')}`,
-					...(reviewPrepareDate
-						? [
-								`Нужно выслать сотруднику: попросить заполнить свою часть отчёта до ${reviewPrepareDate}.`,
-							]
-						: []),
-				]
+			? ['', `📄 ${formatChatLink(folder.report.webViewLink, 'Отчёт')}`]
 			: []),
+		...formatReviewParticipantMessages(
+			fullName,
+			folder,
+			needsClientForm,
+			reviewDate,
+			settings,
+		),
 	].join('\n');
 }
 
