@@ -2502,6 +2502,7 @@ function reviewerSettingsCard(
 					{
 						textInput: {
 							name: 'taskCollectDaysBefore',
+							type: 'SINGLE_LINE',
 							label: 'Сбор отзывов — за сколько дней',
 							value: String(
 								settings?.taskCollectDaysBefore ?? config.taskCollectDaysBefore,
@@ -2511,6 +2512,7 @@ function reviewerSettingsCard(
 					{
 						textInput: {
 							name: 'taskCheckDaysBefore',
+							type: 'SINGLE_LINE',
 							label: 'Проверка отзывов — за сколько дней',
 							value: String(
 								settings?.taskCheckDaysBefore ?? config.taskCheckDaysBefore,
@@ -2520,6 +2522,7 @@ function reviewerSettingsCard(
 					{
 						textInput: {
 							name: 'taskPrepareDaysBefore',
+							type: 'SINGLE_LINE',
 							label: 'Подготовка к встрече — за сколько дней',
 							value: String(
 								settings?.taskPrepareDaysBefore ?? config.taskPrepareDaysBefore,

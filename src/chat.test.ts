@@ -440,16 +440,19 @@ test('/settings groups date-only task fields and a shared explanation', async ()
 		[
 			{
 				name: 'taskCollectDaysBefore',
+				type: 'SINGLE_LINE',
 				label: 'Сбор отзывов — за сколько дней',
 				value: '14',
 			},
 			{
 				name: 'taskCheckDaysBefore',
+				type: 'SINGLE_LINE',
 				label: 'Проверка отзывов — за сколько дней',
 				value: '7',
 			},
 			{
 				name: 'taskPrepareDaysBefore',
+				type: 'SINGLE_LINE',
 				label: 'Подготовка к встрече — за сколько дней',
 				value: '3',
 			},
@@ -2016,23 +2019,21 @@ test('/review submit creates a test folder and returns its link', async () => {
 			'',
 			'📄 <https://docs.google.com/document/report-id|Отчёт>',
 			'',
-			'*Сообщения для отправки*',
-			'',
 			'*Коллегам fuse8:*',
 			'Привет! Ivan Petrov проходит Performance Review, прошу оставить отзыв.',
-			'*Дедлайн — вечер пятницы (5 июня).*',
+			'Дедлайн — вечер пятницы (5 июня).',
 			'Если по работе не пересекались, отметь это в отзыве.',
 			'https://docs.google.com/forms/d/e/internal-form/viewform',
 			'',
 			'*Клиенту:*',
 			'Привет! Ivan Petrov проходит Performance Review, прошу оставить отзыв.',
-			'*Дедлайн — вечер пятницы (5 июня).*',
+			'Дедлайн — вечер пятницы (5 июня).',
 			'Если по работе не пересекались, отметь это в отзыве.',
 			'https://docs.google.com/forms/d/e/client-form/viewform',
 			'',
 			'*Самому сотруднику:*',
 			'Привет, заполни саморевью для проведения PR.',
-			'*Дедлайн — вечер четверга (11 июня).*',
+			'Дедлайн — вечер четверга (11 июня).',
 			'https://docs.google.com/document/report-id',
 		].join('\n'),
 	);
@@ -3091,12 +3092,12 @@ for (const authFailure of [false, true]) {
 		assert.match(messages[1], /Создано задач: 1/);
 		assert.ok(
 			messages[1].includes(
-				'Привет! Ivan Petrov проходит Performance Review, прошу оставить отзыв.\n*Дедлайн — вечер пятницы (5 июня).*',
+				'Привет! Ivan Petrov проходит Performance Review, прошу оставить отзыв.\nДедлайн — вечер пятницы (5 июня).',
 			),
 		);
 		assert.ok(
 			messages[1].includes(
-				'Привет, заполни саморевью для проведения PR.\n*Дедлайн — вечер четверга (11 июня).*',
+				'Привет, заполни саморевью для проведения PR.\nДедлайн — вечер четверга (11 июня).',
 			),
 		);
 		assert.ok(messages[1].includes('https://example.test/folder'));
@@ -3245,7 +3246,7 @@ test('/review keeps template deadlines when no reviewer tasks were created', asy
 	await flushBackgroundTasks();
 	assert.ok(
 		messages[1].includes(
-			'Привет, заполни саморевью для проведения PR.\n*Дедлайн — вечер четверга (11 июня).*\nhttps://example.test/report',
+			'Привет, заполни саморевью для проведения PR.\nДедлайн — вечер четверга (11 июня).\nhttps://example.test/report',
 		),
 	);
 });

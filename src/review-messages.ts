@@ -28,7 +28,7 @@ export function formatParticipantDeadline(
 		month: 'long',
 		timeZone: 'UTC',
 	}).format(date);
-	return `*Дедлайн — вечер ${weekdays[date.getUTCDay()]} (${monthAndDay}).*`;
+	return `Дедлайн — вечер ${weekdays[date.getUTCDay()]} (${monthAndDay}).`;
 }
 
 export function formatReviewParticipantMessages(
@@ -73,5 +73,5 @@ export function formatReviewParticipantMessages(
 			folder.report.webViewLink,
 		);
 	}
-	return blocks.length ? ['', '*Сообщения для отправки*', ...blocks] : [];
+	return blocks;
 }
