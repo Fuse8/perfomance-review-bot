@@ -1979,7 +1979,7 @@ test('/review submit creates a test folder and returns its link', async () => {
 		[
 			'Performance Review — Ivan Petrov',
 			'',
-			'Дата ревью: 15.06.2026, 14:30',
+			'Дата ревью: 15.06.2026, 14:30 (Челябинск, UTC+5)',
 			'',
 			'План:',
 			'04.06 → Проверка отзывов',

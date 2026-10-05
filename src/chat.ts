@@ -1772,7 +1772,7 @@ function formatChatFullDateTime(dateTime: string): string {
 	}
 
 	const [, year, month, day, time] = match;
-	return `${day}.${month}.${year}, ${time}`;
+	return `${day}.${month}.${year}, ${time} (Челябинск, UTC+5)`;
 }
 
 function formatChatPlanDate(dateTime: string): string {

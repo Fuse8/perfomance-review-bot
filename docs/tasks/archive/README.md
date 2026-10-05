@@ -35,3 +35,4 @@
 - [0032 Восстановление авторизации Google](0032-oauth-recovery.md) — Completed: 2026-09-30
 - [0033 Компактный блок напоминаний](0033-reminder-settings-help.md) — Completed: 2026-10-05
 - [0034 Задачи перед ревью без времени](0034-reviewer-google-tasks.md) — Completed: 2026-10-05
+- [0035 Единый формат времени ревью](0035-review-time-format.md) — Completed: 2026-10-05

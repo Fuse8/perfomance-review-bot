@@ -31,6 +31,9 @@ Core project information, technology stack, environment configuration, and avail
 - Before changing storage, keep `TokenStorage` contract stable
 - Before changing deploy docs, treat Vercel as the primary path
 - Keep local JSON mode working unless the user explicitly asks to remove it
+- Display dates with time in bot messages as `DD.MM.YYYY, HH:mm (Челябинск, UTC+5)`
+  using Chelyabinsk time (`Asia/Yekaterinburg`). Keep date-only values, the review
+  time input (`HH:mm`), and Google API date/time formats unchanged.
 
 ## Testing expectations
 
