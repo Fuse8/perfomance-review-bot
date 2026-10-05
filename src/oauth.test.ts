@@ -4,6 +4,9 @@ import { test, vi } from 'vitest';
 import type { AppConfig } from './config.js';
 import type { ReviewerToken } from './types.js';
 import {
+	assertRequiredOAuthScopes,
+	verifyReviewerAuthorizationInClient,
+	OAuthPermissionsError,
 	createOAuthState,
 	completeOAuth,
 	OAuthEmailMismatchError,
@@ -159,6 +162,7 @@ test('OAuth completion saves a refresh token when Google email matches Chat emai
 		async () => ({
 			refreshToken: 'refresh-token',
 			email: ' reviewer@example.com ',
+			scopes: OAUTH_SCOPES,
 		}),
 	);
 
@@ -256,11 +260,13 @@ test('OAuth completion replaces the stored token on repeated authorization', asy
 	try {
 		await completeOAuth(config, storage, 'first-code', state, async () => ({
 			refreshToken: 'first-refresh-token',
+			scopes: OAUTH_SCOPES,
 			email: 'reviewer@example.com',
 		}));
 		vi.setSystemTime(new Date('2026-08-19T10:01:00.000Z'));
 		await completeOAuth(config, storage, 'second-code', state, async () => ({
 			refreshToken: 'second-refresh-token',
+			scopes: OAUTH_SCOPES,
 			email: ' REVIEWER@example.com ',
 		}));
 
@@ -273,4 +279,116 @@ test('OAuth completion replaces the stored token on repeated authorization', asy
 	} finally {
 		vi.useRealTimers();
 	}
+});
+
+test('OAuth scopes include Google Tasks access', () => {
+	assert.ok(OAUTH_SCOPES.includes('https://www.googleapis.com/auth/tasks'));
+});
+
+test('required scopes accept aliases and broader Calendar scope', () => {
+	const granted = OAUTH_SCOPES.map((scope) => {
+		if (scope === 'email')
+			return 'https://www.googleapis.com/auth/userinfo.email';
+		if (scope === 'profile')
+			return 'https://www.googleapis.com/auth/userinfo.profile';
+		if (scope.endsWith('/calendar.events'))
+			return 'https://www.googleapis.com/auth/calendar';
+		return scope;
+	});
+	assert.doesNotThrow(() => assertRequiredOAuthScopes(granted));
+});
+
+test('required scopes detect every missing permission including Tasks', () => {
+	for (const omitted of OAUTH_SCOPES) {
+		assert.throws(
+			() =>
+				assertRequiredOAuthScopes(
+					OAUTH_SCOPES.filter((scope) => scope !== omitted),
+				),
+			(error) => {
+				assert.ok(error instanceof OAuthPermissionsError);
+				assert.deepEqual(error.missingScopes, [omitted]);
+				return true;
+			},
+		);
+	}
+});
+
+test('OAuth completion does not replace a saved grant when consent is incomplete', async () => {
+	let saves = 0;
+	const state = createOAuthState(config, {
+		chatUserId: 'users/123',
+		email: 'reviewer@example.com',
+	});
+	const storage = {
+		async get() {
+			return null;
+		},
+		async save() {
+			saves++;
+		},
+		async delete() {
+			assert.fail('must preserve old grant');
+		},
+	};
+	await assert.rejects(
+		() =>
+			completeOAuth(config, storage, 'code', state, async () => ({
+				refreshToken: 'new-token',
+				email: 'reviewer@example.com',
+				scopes: OAUTH_SCOPES.filter((scope) => !scope.endsWith('/tasks')),
+			})),
+		OAuthPermissionsError,
+	);
+	assert.equal(saves, 0);
+});
+
+test('authorization checks actual access token scopes', async () => {
+	let inspected = '';
+	await verifyReviewerAuthorizationInClient({
+		async getAccessToken() {
+			return { token: 'access-token' };
+		},
+		async getTokenInfo(token) {
+			inspected = token;
+			return {
+				aud: 'client',
+				expiry_date: Date.now() + 60000,
+				scopes: OAUTH_SCOPES,
+			};
+		},
+	});
+	assert.equal(inspected, 'access-token');
+	await assert.rejects(
+		() =>
+			verifyReviewerAuthorizationInClient({
+				async getAccessToken() {
+					return { token: 'access-token' };
+				},
+				async getTokenInfo() {
+					return {
+						aud: 'client',
+						expiry_date: Date.now() + 60000,
+						scopes: OAUTH_SCOPES.filter((scope) => !scope.endsWith('/tasks')),
+					};
+				},
+			}),
+		OAuthPermissionsError,
+	);
+});
+
+test('authorization propagates network errors without converting them to missing permissions', async () => {
+	const error = new Error('network unavailable');
+	await assert.rejects(
+		() =>
+			verifyReviewerAuthorizationInClient({
+				async getAccessToken() {
+					throw error;
+				},
+				async getTokenInfo() {
+					assert.fail('must not inspect missing token');
+				},
+			}),
+		error,
+	);
 });

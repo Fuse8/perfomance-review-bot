@@ -19,7 +19,8 @@
 - `src/oauth.ts` - OAuth flow для reviewer.
 - `src/google-chat.ts` - отправка сообщений через bot authentication.
 - `src/drive.ts` - Drive, Docs и Forms операции.
-- `src/calendar.ts` - Calendar встречи и reminders.
+- `src/calendar.ts` - Calendar встречи.
+- `src/tasks.ts` - личные задачи подготовки через Google Tasks API.
 - `src/people.ts` - поиск сотрудников.
 - `src/storage.ts` - storage contract и реализации.
 - `prisma/schema.prisma` - схема БД.

@@ -42,7 +42,7 @@ pnpm dev
 ## Стек
 
 - TypeScript, Node.js, Express
-- Google Chat API, OAuth 2.0, Drive, Docs, Forms, Calendar, People APIs
+- Google Chat API, OAuth 2.0, Drive, Docs, Forms, Calendar, Tasks, People APIs
 - Prisma, PostgreSQL, Neon
 - Vercel
 

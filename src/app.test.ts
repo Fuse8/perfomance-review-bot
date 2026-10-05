@@ -3,7 +3,11 @@ import { EventEmitter } from 'node:events';
 import { test } from 'vitest';
 import type { AppConfig } from './config.js';
 import { createApp } from './app.js';
-import { OAuthEmailMismatchError, OAuthStateError } from './oauth.js';
+import {
+	OAuthPermissionsError,
+	OAuthEmailMismatchError,
+	OAuthStateError,
+} from './oauth.js';
 import type { AppStorage } from './storage.js';
 
 const config: AppConfig = {
@@ -230,4 +234,22 @@ test('OAuth callback shows retry instructions when Google rejects the grant', as
 	assert.match(response.headers['content-type'] ?? '', /html/);
 	assert.match(response.body, /вызовите \/info/);
 	assert.doesNotMatch(response.body, /test-code/);
+});
+
+test('OAuth callback explains incomplete consent', async () => {
+	const app = createApp(config, storage, {
+		async completeOAuth() {
+			throw new OAuthPermissionsError([
+				'https://www.googleapis.com/auth/tasks',
+			]);
+		},
+	});
+	const response = await invokeApp(
+		app,
+		'GET',
+		'/auth/google/callback?code=test-code&state=valid',
+	);
+	assert.equal(response.statusCode, 400);
+	assert.match(response.body, /Не все разрешения предоставлены/);
+	assert.match(response.body, /Авторизация не сохранена/);
 });

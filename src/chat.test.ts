@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
+import { OAuthPermissionsError } from './oauth.js';
+import { ReviewerTasksCreationError } from './tasks.js';
 import type { AppConfig } from './config.js';
 import { createChatEventHandler, getDirectorySearchQuery } from './chat.js';
 import type { AppStorage } from './storage.js';
@@ -60,6 +62,8 @@ const storage = {
 
 function createHandler(overrides: Partial<ChatEventHandlerDeps> = {}) {
 	return createChatEventHandler({
+		async verifyReviewerAuthorization() {},
+		async verifyReviewerTasksAccess() {},
 		async findPreviousReviewReport() {
 			return {
 				id: 'previous-report-id',
@@ -81,28 +85,25 @@ function createHandler(overrides: Partial<ChatEventHandlerDeps> = {}) {
 				startDateTime: '2026-06-15T14:30:00+05:00',
 			};
 		},
-		async createReviewerReminderEvents() {
+		async createReviewerTasks() {
 			return [
 				{
 					kind: 'collect',
 					id: 'collect-reminder-id',
-					summary: 'Запустить сбор отзывов для PR Ivan Petrov',
-					htmlLink: 'https://calendar.google.com/event?eid=collect-reminder-id',
-					startDateTime: '2026-05-26T12:00:00+05:00',
+					title: 'Запустить сбор отзывов для PR Ivan Petrov',
+					dueDate: '2026-05-26',
 				},
 				{
 					kind: 'check',
 					id: 'check-reminder-id',
-					summary: 'Проверить отзывы для PR Ivan Petrov',
-					htmlLink: 'https://calendar.google.com/event?eid=check-reminder-id',
-					startDateTime: '2026-06-04T12:00:00+05:00',
+					title: 'Проверить отзывы для PR Ivan Petrov',
+					dueDate: '2026-06-04',
 				},
 				{
 					kind: 'prepare',
 					id: 'prepare-reminder-id',
-					summary: 'Подготовиться к проведению PR Ivan Petrov',
-					htmlLink: 'https://calendar.google.com/event?eid=prepare-reminder-id',
-					startDateTime: '2026-06-10T12:00:00+05:00',
+					title: 'Подготовиться к проведению PR Ivan Petrov',
+					dueDate: '2026-06-10',
 				},
 			];
 		},
@@ -125,8 +126,10 @@ function createHandler(overrides: Partial<ChatEventHandlerDeps> = {}) {
 
 type ChatEventHandlerDeps = {
 	createReviewFolder: typeof import('./drive.js').createReviewFolder;
+	verifyReviewerAuthorization: typeof import('./oauth.js').verifyReviewerAuthorization;
+	verifyReviewerTasksAccess: typeof import('./tasks.js').verifyReviewerTasksAccess;
 	createCalendarEvent: typeof import('./calendar.js').createCalendarEvent;
-	createReviewerReminderEvents: typeof import('./calendar.js').createReviewerReminderEvents;
+	createReviewerTasks: typeof import('./tasks.js').createReviewerTasks;
 	findPreviousReviewReport: typeof import('./drive.js').findPreviousReviewReport;
 	listReviewStatuses: typeof import('./drive.js').listReviewStatuses;
 	ensureEmployeeFolder: typeof import('./drive.js').ensureEmployeeFolder;
@@ -165,7 +168,7 @@ test('/info returns bot version and review command help', async () => {
 		[
 			'*🚀 Performance Review Assistant · vX.Y.Z*',
 			'',
-			'Бот помогает провести Performance Review: создаёт отчёт и формы в Google Drive, встречу и напоминания в календаре.',
+			'Бот помогает провести Performance Review: создаёт отчёт и формы в Google Drive, встречу в календаре и задачи подготовки в Google Tasks.',
 			'',
 			'*📋 Команды*',
 			'• /review — создать новое ревью',
@@ -393,12 +396,11 @@ test('/settings opens dialog with default values', async () => {
 		taskCollectDaysBefore: '14',
 		taskCheckDaysBefore: '7',
 		taskPrepareDaysBefore: '3',
-		taskReminderTime: '12:00',
 		reviewIntervalMonths: '6',
 	});
 });
 
-test('/settings groups reminder fields with their time and a shared explanation', async () => {
+test('/settings groups date-only task fields and a shared explanation', async () => {
 	const response = await createHandler()(
 		config,
 		storage,
@@ -420,10 +422,10 @@ test('/settings groups reminder fields with their time and a shared explanation'
 	assert.ok(section);
 	assert.equal(section.collapsible, undefined);
 	assert.equal(section.collapseControl, undefined);
-	assert.equal(section.widgets?.length, 5);
+	assert.equal(section.widgets?.length, 4);
 	assert.equal(
 		section.widgets?.[0].textParagraph?.text,
-		'За сколько дней до встречи напомнить о каждом этапе (будут созданы задачи):',
+		'За сколько дней до встречи создать задачи каждого этапа (без времени):',
 	);
 	assert.deepEqual(
 		section.widgets?.slice(1).map((widget) => widget.textInput),
@@ -442,12 +444,6 @@ test('/settings groups reminder fields with their time and a shared explanation'
 				name: 'taskPrepareDaysBefore',
 				label: 'Подготовка к встрече — за сколько дней',
 				value: '3',
-			},
-			{
-				name: 'taskReminderTime',
-				label: 'Время напоминаний (HH:mm, Челябинск)',
-				value: '12:00',
-				validation: { characterLimit: 5 },
 			},
 		],
 	);
@@ -597,7 +593,7 @@ test('/settings saves validated reviewer settings', async () => {
 		taskCollectDaysBefore: 10,
 		taskCheckDaysBefore: 5,
 		taskPrepareDaysBefore: 1,
-		taskReminderTime: '09:30',
+		taskReminderTime: '12:00',
 		reviewIntervalMonths: 9,
 		updatedAt: settings.updatedAt,
 	});
@@ -794,7 +790,7 @@ test('reinstall keeps an existing reviewer token', async () => {
 });
 
 test('/review opens employee lookup card', async () => {
-	const handleChatEvent = createChatEventHandler();
+	const handleChatEvent = createHandler();
 
 	const response = await handleChatEvent(config, storage, {
 		user: {
@@ -1105,27 +1101,42 @@ test('/review employee suggestions return matching directory employees', async (
 	});
 });
 
-test('/review without reviewer settings asks to run settings first', async () => {
-	const settingsStorage = {
-		...storage,
-		async getReviewerSettings() {
-			return null;
-		},
-	};
-	const handleChatEvent = createHandler({
-		async ensureEmployeeFolder() {
-			throw new Error('should not check employee folders without settings');
-		},
+for (const missingSettings of [
+	null,
+	{ ...(await storage.getReviewerSettings()), rootFolderId: '' },
+]) {
+	test(`/review opens setup guidance dialog when settings are ${missingSettings ? 'empty' : 'missing'}`, async () => {
+		const handler = createHandler({
+			async ensureEmployeeFolder() {
+				assert.fail('must not check employee folders');
+			},
+			async verifyReviewerTasksAccess() {
+				assert.fail('must not call Tasks');
+			},
+		});
+		const response = await handler(
+			config,
+			{
+				...storage,
+				async getReviewerSettings() {
+					return missingSettings;
+				},
+			},
+			{
+				...reviewCommandEvent(),
+				dialogEventType: 'REQUEST_DIALOG',
+				isDialogEvent: true,
+			},
+		);
+		assert.equal(response.text, undefined);
+		assert.equal(response.actionResponse?.type, 'DIALOG');
+		const card = response.actionResponse?.dialogAction?.dialog?.body;
+		assert.equal(card?.header?.title, 'Нужно настроить папку ревью');
+		const text = card?.sections?.[0].widgets?.[0].textParagraph?.text ?? '';
+		assert.match(text, /Сначала настройте \/settings/);
+		assert.match(text, /сохраните настройки и снова вызовите \/review/);
 	});
-
-	const response = await handleChatEvent(
-		config,
-		settingsStorage,
-		reviewCommandEvent(),
-	);
-
-	assert.match(getResponseText(response), /Сначала настройте \/settings/);
-});
+}
 
 test('/status without reviewer settings asks to run settings first', async () => {
 	const settingsStorage = {
@@ -1253,7 +1264,7 @@ test('/review uses reviewer settings for root folder and reminders', async () =>
 				startDateTime: '2026-06-15T14:30:00+05:00',
 			};
 		},
-		async createReviewerReminderEvents(effectiveConfig) {
+		async createReviewerTasks(effectiveConfig) {
 			assert.equal(effectiveConfig.taskCollectDaysBefore, 10);
 			assert.equal(effectiveConfig.taskCheckDaysBefore, 5);
 			assert.equal(effectiveConfig.taskPrepareDaysBefore, 1);
@@ -1919,7 +1930,7 @@ test('/review submit creates a test folder and returns its link', async () => {
 				startDateTime: '2026-06-15T14:30:00+05:00',
 			};
 		},
-		async createReviewerReminderEvents(_config, refreshToken, request) {
+		async createReviewerTasks(_config, refreshToken, request) {
 			assert.equal(refreshToken, 'refresh-token');
 			assert.deepEqual(request, {
 				fullName: 'Ivan Petrov',
@@ -1938,16 +1949,14 @@ test('/review submit creates a test folder and returns its link', async () => {
 				{
 					kind: 'check',
 					id: 'check-reminder-id',
-					summary: 'Проверить отзывы для PR Ivan Petrov',
-					htmlLink: 'https://calendar.google.com/event?eid=check-reminder-id',
-					startDateTime: '2026-06-04T12:00:00+05:00',
+					title: 'Проверить отзывы для PR Ivan Petrov',
+					dueDate: '2026-06-04',
 				},
 				{
 					kind: 'prepare',
 					id: 'prepare-reminder-id',
-					summary: 'Подготовиться к проведению PR Ivan Petrov',
-					htmlLink: 'https://calendar.google.com/event?eid=prepare-reminder-id',
-					startDateTime: '2026-06-10T12:00:00+05:00',
+					title: 'Подготовиться к проведению PR Ivan Petrov',
+					dueDate: '2026-06-10',
 				},
 			];
 		},
@@ -1980,7 +1989,7 @@ test('/review submit creates a test folder and returns its link', async () => {
 			'📁 <https://drive.google.com/folder|Папка ревью>',
 			'',
 			'📅 <https://calendar.google.com/event?eid=calendar-event-id|Встреча>',
-			'Все напоминания и встречи по ревью отображаются в вашем календаре.',
+			'Задачи подготовки и встреча по ревью отображаются в вашем календаре.',
 			'',
 			'📝 <https://docs.google.com/forms/internal-form-id|Форма обратной связи (fuse8)>',
 			'Добавьте в форму коллег, работавших с сотрудником.',
@@ -2025,7 +2034,7 @@ test('/review submit mentions only the meeting when all reminders are skipped', 
 				webViewLink: 'https://drive.google.com/folder',
 			};
 		},
-		async createReviewerReminderEvents() {
+		async createReviewerTasks() {
 			return [];
 		},
 		async sendChatMessage(_config, _spaceName, text) {
@@ -2928,4 +2937,226 @@ test('/status keeps token on a non-auth Drive failure', async () => {
 		statusCommandEvent(),
 	);
 	assert.match(getResponseText(result), /Ошибка Google Drive: File not found/);
+});
+
+test('/review Tasks preflight rejects missing scope before creating materials or meeting', async () => {
+	const messages: string[] = [];
+	let cleared = false;
+	const handler = createHandler({
+		async verifyReviewerTasksAccess() {
+			throw new Error('Request had insufficient authentication scopes');
+		},
+		async createReviewFolder() {
+			assert.fail('must not create documents');
+		},
+		async createCalendarEvent() {
+			assert.fail('must not create meeting');
+		},
+		async createReviewerTasks() {
+			assert.fail('must not create tasks');
+		},
+		async buildAuthUrl() {
+			return 'https://example.test/auth';
+		},
+		async sendChatMessage(_config, _space, text) {
+			messages.push(text);
+		},
+	});
+	await handler(
+		config,
+		{
+			...storage,
+			async delete() {
+				cleared = true;
+			},
+		},
+		reviewSubmitEvent(),
+	);
+	await flushBackgroundTasks();
+	assert.equal(cleared, true);
+	assert.equal(messages.length, 2);
+	assert.match(messages[1], /https:\/\/example.test\/auth/);
+});
+
+test('/review Tasks service preflight failure stops before creating any materials', async () => {
+	const messages: string[] = [];
+	const handler = createHandler({
+		async verifyReviewerTasksAccess() {
+			throw new Error('Tasks API is disabled');
+		},
+		async createReviewFolder() {
+			assert.fail('must not create documents');
+		},
+		async createCalendarEvent() {
+			assert.fail('must not create meeting');
+		},
+		async sendChatMessage(_config, _space, text) {
+			messages.push(text);
+		},
+	});
+	await handler(config, storage, reviewSubmitEvent());
+	await flushBackgroundTasks();
+	assert.match(messages[1], /Материалы ревью не созданы/);
+});
+
+for (const authFailure of [false, true]) {
+	test(`/review reports partial Tasks result and preserves material links (auth=${authFailure})`, async () => {
+		const messages: string[] = [];
+		let taskCalls = 0;
+		const handler = createHandler({
+			async createReviewFolder() {
+				return {
+					id: 'folder',
+					name: '2026.06',
+					webViewLink: 'https://example.test/folder',
+				};
+			},
+			async createReviewerTasks() {
+				taskCalls++;
+				throw new ReviewerTasksCreationError(
+					[
+						{
+							id: 'task',
+							kind: 'collect',
+							title: 'Сбор отзывов',
+							dueDate: '2026-06-01',
+							webViewLink: 'https://example.test/task',
+						},
+					],
+					new Error(
+						authFailure
+							? 'Request had insufficient authentication scopes'
+							: 'Unavailable',
+					),
+				);
+			},
+			async buildAuthUrl() {
+				return 'https://example.test/auth';
+			},
+			async sendChatMessage(_config, _space, text) {
+				messages.push(text);
+			},
+		});
+		await handler(config, storage, reviewSubmitEvent());
+		await flushBackgroundTasks();
+		assert.equal(taskCalls, 1);
+		assert.match(messages[1], /Создано задач: 1/);
+		assert.ok(messages[1].includes('https://example.test/folder'));
+		assert.ok(
+			messages[1].includes(
+				'https://calendar.google.com/event?eid=calendar-event-id',
+			),
+		);
+		assert.ok(messages[1].includes('https://example.test/task'));
+		assert.match(messages[1], /Не запускайте \/review повторно/);
+		if (authFailure) {
+			assert.ok(messages[1].includes('https://example.test/auth'));
+			assert.doesNotMatch(messages[1], /повторите команду/);
+		}
+	});
+}
+
+test('/settings accepts missing time and preserves the stored legacy time', async () => {
+	let saved: ReviewerSettings | undefined;
+	const settingsEvent = settingsSubmitEvent({});
+	delete settingsEvent.common?.formInputs?.taskReminderTime;
+	const handler = createHandler();
+	const response = await handler(
+		config,
+		{
+			...storage,
+			async getReviewerSettings() {
+				return {
+					...(await storage.getReviewerSettings()),
+					taskReminderTime: '09:30',
+				};
+			},
+			async saveReviewerSettings(value) {
+				saved = value;
+			},
+		},
+		settingsEvent,
+	);
+	assert.equal(getResponseText(response), 'Настройки сохранены.');
+	assert.equal(saved?.taskReminderTime, '09:30');
+});
+
+for (const failure of ['missing', 'revoked', 'network']) {
+	test(`/review checks authorization before showing form (${failure})`, async () => {
+		let cleared = false;
+		const handler = createHandler({
+			async verifyReviewerAuthorization() {
+				if (failure === 'missing')
+					throw new OAuthPermissionsError([
+						'https://www.googleapis.com/auth/tasks',
+					]);
+				throw new Error(
+					failure === 'revoked' ? 'invalid_grant' : 'network unavailable',
+				);
+			},
+			async buildAuthUrl() {
+				return 'https://example.test/auth';
+			},
+			async ensureEmployeeFolder() {
+				assert.fail('must not create folders');
+			},
+		});
+		const response = await handler(
+			config,
+			{
+				...storage,
+				async delete() {
+					cleared = true;
+				},
+			},
+			{
+				...reviewCommandEvent(),
+				dialogEventType: 'REQUEST_DIALOG',
+				isDialogEvent: true,
+			},
+		);
+		const card = response.actionResponse?.dialogAction?.dialog?.body;
+		assert.equal(response.actionResponse?.type, 'DIALOG');
+		assert.equal(cleared, failure === 'revoked');
+		const serialized = JSON.stringify(card);
+		if (failure === 'network') {
+			assert.match(serialized, /повторите \/review немного позже/);
+			assert.doesNotMatch(serialized, /https:\/\/example.test\/auth/);
+		} else {
+			assert.ok(serialized.includes('https://example.test/auth'));
+			if (failure === 'missing')
+				assert.match(serialized, /Нужно обновить доступ/);
+		}
+	});
+}
+
+test('/review rechecks all scopes before creating materials even after form was opened', async () => {
+	const messages: string[] = [];
+	let taskChecks = 0;
+	const handler = createHandler({
+		async verifyReviewerAuthorization() {
+			throw new OAuthPermissionsError([
+				'https://www.googleapis.com/auth/tasks',
+			]);
+		},
+		async verifyReviewerTasksAccess() {
+			taskChecks++;
+		},
+		async createReviewFolder() {
+			assert.fail('must not create documents');
+		},
+		async createCalendarEvent() {
+			assert.fail('must not create meeting');
+		},
+		async buildAuthUrl() {
+			return 'https://example.test/auth';
+		},
+		async sendChatMessage(_config, _space, text) {
+			messages.push(text);
+		},
+	});
+	await handler(config, storage, reviewSubmitEvent());
+	await flushBackgroundTasks();
+	assert.equal(taskChecks, 0);
+	assert.ok(messages[1].includes('https://example.test/auth'));
 });

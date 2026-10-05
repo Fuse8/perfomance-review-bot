@@ -32,6 +32,7 @@ export class OAuthEmailMismatchError extends Error {
 }
 
 type OAuthGrant = {
+	scopes?: string[];
 	refreshToken: string | null | undefined;
 	email: string | null | undefined;
 };
@@ -45,9 +46,59 @@ export const OAUTH_SCOPES = [
 	'https://www.googleapis.com/auth/drive',
 	'https://www.googleapis.com/auth/documents',
 	'https://www.googleapis.com/auth/calendar.events',
+	'https://www.googleapis.com/auth/tasks',
 	'https://www.googleapis.com/auth/directory.readonly',
 	'https://www.googleapis.com/auth/forms.body',
 ];
+
+export class OAuthPermissionsError extends Error {
+	constructor(readonly missingScopes: string[]) {
+		super('Insufficient authentication scopes: Google access must be renewed');
+		this.name = 'OAuthPermissionsError';
+	}
+}
+
+export function assertRequiredOAuthScopes(grantedScopes: string[]): void {
+	const aliases: Record<string, string> = {
+		email: 'https://www.googleapis.com/auth/userinfo.email',
+		profile: 'https://www.googleapis.com/auth/userinfo.profile',
+	};
+	const normalize = (scope: string) => aliases[scope] ?? scope;
+	const granted = new Set(grantedScopes.map(normalize));
+	const missing = OAUTH_SCOPES.filter((scope) => {
+		if (
+			scope === 'https://www.googleapis.com/auth/calendar.events' &&
+			granted.has('https://www.googleapis.com/auth/calendar')
+		)
+			return false;
+		return !granted.has(normalize(scope));
+	});
+	if (missing.length) throw new OAuthPermissionsError(missing);
+}
+
+type AuthorizationClient = Pick<
+	OAuth2Client,
+	'getAccessToken' | 'getTokenInfo'
+>;
+
+export async function verifyReviewerAuthorizationInClient(
+	client: AuthorizationClient,
+): Promise<void> {
+	const { token } = await client.getAccessToken();
+	if (!token)
+		throw new Error('invalid_grant: Google did not return an access token');
+	const info = await client.getTokenInfo(token);
+	assertRequiredOAuthScopes(info.scopes);
+}
+
+export async function verifyReviewerAuthorization(
+	config: AppConfig,
+	refreshToken: string,
+): Promise<void> {
+	const client = createOAuthClient(config);
+	client.setCredentials({ refresh_token: refreshToken });
+	await verifyReviewerAuthorizationInClient(client);
+}
 
 export function createOAuthClient(config: AppConfig): OAuth2Client {
 	return new google.auth.OAuth2(
@@ -172,6 +223,7 @@ export async function completeOAuth(
 		throw new OAuthEmailMismatchError(stateData.email, actualEmail);
 	}
 
+	assertRequiredOAuthScopes(grant.scopes ?? []);
 	await storage.save({
 		chatUserId: stateData.chatUserId,
 		googleUserEmail: actualEmail,
@@ -192,11 +244,16 @@ async function loadGoogleOAuthGrant(
 		return { refreshToken: tokens.refresh_token, email: undefined };
 	}
 	client.setCredentials(tokens);
+	const { token } = await client.getAccessToken();
+	if (!token)
+		throw new Error('invalid_grant: Google did not return an access token');
+	const info = await client.getTokenInfo(token);
 	const oauth2 = google.oauth2({ version: 'v2', auth: client });
 	const { data } = await oauth2.userinfo.get();
 	return {
 		refreshToken: tokens.refresh_token,
 		email: data.email,
+		scopes: info.scopes,
 	};
 }
 

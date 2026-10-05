@@ -6,6 +6,7 @@ import {
 	completeOAuth,
 	OAuthEmailMismatchError,
 	OAuthStateError,
+	OAuthPermissionsError,
 } from './oauth.js';
 import type { AppStorage } from './storage.js';
 
@@ -93,6 +94,18 @@ export function createApp(
 						callbackErrorPage(
 							'Выбран другой Google-аккаунт',
 							`Ожидался аккаунт ${error.expectedEmail}, но выбран ${error.actualEmail}. Вернитесь в Google Chat и запросите новую ссылку.`,
+						),
+					);
+				return;
+			}
+			if (error instanceof OAuthPermissionsError) {
+				res
+					.status(400)
+					.type('html')
+					.send(
+						callbackErrorPage(
+							'Не все разрешения предоставлены',
+							'Авторизация не сохранена. Вернитесь в Google Chat, снова вызовите /review и предоставьте все запрошенные разрешения Google.',
 						),
 					);
 				return;

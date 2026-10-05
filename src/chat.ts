@@ -1,11 +1,12 @@
 import type { AppConfig } from './config.js';
 import { readFileSync } from 'node:fs';
+import { createCalendarEvent, type CreatedCalendarEvent } from './calendar.js';
 import {
-	createCalendarEvent,
-	createReviewerReminderEvents,
-	type CreatedReviewerReminderEvent,
-	type CreatedCalendarEvent,
-} from './calendar.js';
+	createReviewerTasks,
+	verifyReviewerTasksAccess,
+	ReviewerTasksCreationError,
+	type CreatedReviewerTask,
+} from './tasks.js';
 import {
 	createReviewFolder,
 	ensureEmployeeFolder,
@@ -19,7 +20,12 @@ import {
 } from './drive.js';
 import { sendChatMessage } from './google-chat.js';
 import { formatAuthRequiredMessage, isOAuthAuthError } from './oauth-errors.js';
-import { buildAuthUrl, getReviewerName } from './oauth.js';
+import {
+	buildAuthUrl,
+	getReviewerName,
+	verifyReviewerAuthorization,
+	OAuthPermissionsError,
+} from './oauth.js';
 import { searchDirectoryEmployees } from './people.js';
 import type { AppStorage } from './storage.js';
 import type {
@@ -140,7 +146,9 @@ const REVERSE_TRANSLIT_REPLACEMENTS = buildReverseTranslReplacements(
 type ChatEventHandlerDeps = {
 	createReviewFolder: typeof createReviewFolder;
 	createCalendarEvent: typeof createCalendarEvent;
-	createReviewerReminderEvents: typeof createReviewerReminderEvents;
+	verifyReviewerAuthorization: typeof verifyReviewerAuthorization;
+	verifyReviewerTasksAccess: typeof verifyReviewerTasksAccess;
+	createReviewerTasks: typeof createReviewerTasks;
 	ensureEmployeeFolder: typeof ensureEmployeeFolder;
 	findPreviousReviewReport: typeof findPreviousReviewReport;
 	listReviewStatuses: typeof listReviewStatuses;
@@ -178,9 +186,11 @@ const defaultScheduleBackgroundTask = createBackgroundTaskScheduler((task) => {
 });
 
 const defaultDeps: ChatEventHandlerDeps = {
+	verifyReviewerAuthorization,
+	createReviewerTasks,
+	verifyReviewerTasksAccess,
 	createReviewFolder,
 	createCalendarEvent,
-	createReviewerReminderEvents,
 	ensureEmployeeFolder,
 	findPreviousReviewReport,
 	listReviewStatuses,
@@ -299,9 +309,57 @@ export function createChatEventHandler(
 					'dialog_card',
 				);
 			}
+			try {
+				await resolvedDeps.verifyReviewerAuthorization(
+					config,
+					token.refreshToken,
+				);
+			} catch (error) {
+				if (isOAuthAuthError(error)) {
+					return respondReviewerAuthRequired(
+						config,
+						storage,
+						chatUserId,
+						resolvedDeps,
+						event,
+						'dialog_card',
+						{
+							clearStaleToken: !(error instanceof OAuthPermissionsError),
+							accessUpdateRequired: error instanceof OAuthPermissionsError,
+						},
+					);
+				}
+				return dialogResponse({
+					header: { title: 'Не удалось проверить доступ к Google' },
+					sections: [
+						{
+							widgets: [
+								{
+									textParagraph: {
+										text: 'Не удалось проверить разрешения Google. Закройте окно и повторите /review немного позже. Сохранённая авторизация не изменена.',
+									},
+								},
+							],
+						},
+					],
+				});
+			}
 			const settings = await storage.getReviewerSettings(chatUserId);
 			if (!settings?.rootFolderId) {
-				return textResponse(buildMissingReviewerSettingsMessage());
+				return dialogResponse({
+					header: { title: 'Нужно настроить папку ревью' },
+					sections: [
+						{
+							widgets: [
+								{
+									textParagraph: {
+										text: `${buildMissingReviewerSettingsMessage()}<br>Закройте это окно, выполните /settings, сохраните настройки и снова вызовите /review.`,
+									},
+								},
+							],
+						},
+					],
+				});
 			}
 			return dialogResponse(employeeLookupCard(config));
 		}
@@ -415,7 +473,7 @@ function buildInfoMessage(
 	return [
 		`*🚀 Performance Review Assistant · v${BOT_VERSION}*`,
 		'',
-		'Бот помогает провести Performance Review: создаёт отчёт и формы в Google Drive, встречу и напоминания в календаре.',
+		'Бот помогает провести Performance Review: создаёт отчёт и формы в Google Drive, встречу в календаре и задачи подготовки в Google Tasks.',
 		'',
 		'*📋 Команды*',
 		'• /review — создать новое ревью',
@@ -494,9 +552,11 @@ async function handleReviewerSettingsSubmit(
 		);
 	}
 
+	const previousSettings = await storage.getReviewerSettings(chatUserId);
 	const parsed = parseReviewerSettings(
 		chatUserId,
 		event.common?.formInputs ?? {},
+		previousSettings?.taskReminderTime ?? config.taskReminderTime,
 	);
 	if (!parsed.ok) {
 		return respondReviewMessage(
@@ -1013,6 +1073,25 @@ async function runReviewWorkflow(
 		previousReviewId,
 		previousReviewUrl,
 	} = params;
+	try {
+		await deps.verifyReviewerAuthorization(config, refreshToken);
+		await deps.verifyReviewerTasksAccess(config, refreshToken);
+	} catch (error) {
+		const authResult = await deliverWorkflowAuthRequired(
+			error,
+			params,
+			deps,
+			'verifyReviewerTasksAccess',
+		);
+		if (authResult) return authResult;
+		const errorText = `Не удалось проверить доступ к Google. Материалы ревью не созданы. Ошибка: ${error instanceof Error ? error.message : String(error)}`;
+		await deliverWorkflowResultToChat(config, deps, event, errorText);
+		return {
+			textLength: errorText.length,
+			remindersCount: 0,
+			hasCalendar: false,
+		};
+	}
 	logChatEvent('submit.createFolder.start', {
 		fullName: request.fullName,
 		reviewMonth,
@@ -1118,40 +1197,49 @@ async function runReviewWorkflow(
 		hasLink: Boolean(calendarEvent.htmlLink),
 	});
 
-	let reminderEvents: CreatedReviewerReminderEvent[];
+	let reviewerTasks: CreatedReviewerTask[];
 	try {
-		reminderEvents = await deps.createReviewerReminderEvents(
+		reviewerTasks = await deps.createReviewerTasks(
 			config,
 			refreshToken,
 			calendarRequest,
+			deps.getCurrentDate(),
 		);
 	} catch (error) {
-		const authDelivered = await deliverWorkflowAuthRequired(
-			error,
-			params,
-			deps,
-			'createReviewerReminderEvents',
-		);
-		if (authDelivered) {
-			return authDelivered;
+		const createdTasks =
+			error instanceof ReviewerTasksCreationError ? error.createdTasks : [];
+		const message = error instanceof Error ? error.message : String(error);
+		logChatEvent('submit.createReviewerTasks.failed', {
+			message,
+			count: createdTasks.length,
+		});
+		let errorText = `${formatReviewSuccessMessage(request.fullName, folder, request.needsClientForm, calendarEvent, createdTasks)}
+
+Не удалось создать все задачи подготовки. Создано задач: ${createdTasks.length}.
+Ошибка Google Tasks: ${message}
+Не запускайте /review повторно для этого ревью: материалы и встреча уже созданы.`;
+		if (isOAuthAuthError(error)) {
+			await params.storage.delete(params.chatUserId);
+			const authUrl = await buildChatAuthUrl(
+				config,
+				event,
+				params.chatUserId,
+				deps,
+			);
+			if (authUrl)
+				errorText += `
+
+Подключите Google-аккаунт повторно для следующих ревью: ${authUrl}`;
 		}
-
-		const message = error instanceof Error ? error.message : 'Unknown error';
-		logChatEvent('submit.createReviewerReminderEvents.failed', { message });
-		const errorText = [
-			"Не удалось создать reminder'ы ревьюера.",
-			`Ошибка Google Calendar: ${message}`,
-		].join('\n');
-
 		await deliverWorkflowResultToChat(config, deps, event, errorText);
 		return {
 			textLength: errorText.length,
-			remindersCount: 0,
-			hasCalendar: false,
+			remindersCount: createdTasks.length,
+			hasCalendar: true,
 		};
 	}
-	logChatEvent('submit.createReviewerReminderEvents.success', {
-		count: reminderEvents.length,
+	logChatEvent('submit.createReviewerTasks.success', {
+		count: reviewerTasks.length,
 	});
 
 	const successText = formatReviewSuccessMessage(
@@ -1159,13 +1247,13 @@ async function runReviewWorkflow(
 		folder,
 		request.needsClientForm,
 		calendarEvent,
-		reminderEvents,
+		reviewerTasks,
 	);
 
 	await deliverWorkflowResultToChat(config, deps, event, successText);
 	return {
 		textLength: successText.length,
-		remindersCount: reminderEvents.length,
+		remindersCount: reviewerTasks.length,
 		hasCalendar: Boolean(calendarEvent),
 	};
 }
@@ -1289,6 +1377,7 @@ function parseReviewRequest(
 function parseReviewerSettings(
 	chatUserId: string,
 	inputs: ChatFormInputs,
+	taskReminderTime: string,
 ):
 	| { ok: true; value: Omit<ReviewerSettings, 'updatedAt'> }
 	| {
@@ -1308,7 +1397,6 @@ function parseReviewerSettings(
 		inputs.taskPrepareDaysBefore,
 		'Подготовка к встрече — за сколько дней',
 	);
-	const taskReminderTime = getStringInput(inputs.taskReminderTime).trim();
 	const reviewIntervalMonths = parsePositiveIntegerInput(
 		inputs.reviewIntervalMonths,
 		'Период ревью в месяцах',
@@ -1342,18 +1430,6 @@ function parseReviewerSettings(
 
 	if (!reviewIntervalMonths.ok) {
 		return reviewIntervalMonths;
-	}
-
-	if (!taskReminderTime) {
-		return { ok: false, error: 'Укажите время задач.' };
-	}
-
-	if (!isValidMeetingTime(taskReminderTime)) {
-		return {
-			ok: false,
-			error:
-				'Время напоминаний должно быть в формате HH:mm, диапазон 00:00-23:59. Например: 12:00.',
-		};
 	}
 
 	return {
@@ -1597,13 +1673,13 @@ function formatReviewSuccessMessage(
 	folder: CreatedFolder,
 	needsClientForm: boolean,
 	calendarEvent?: CreatedCalendarEvent,
-	reminderEvents: CreatedReviewerReminderEvent[] = [],
+	reviewerTasks: CreatedReviewerTask[] = [],
 ): string {
-	const reviewPrepareReminder = reminderEvents.find(
+	const reviewPrepareReminder = reviewerTasks.find(
 		(event) => event.kind === 'prepare',
 	);
-	const reviewPrepareDate = reviewPrepareReminder?.startDateTime
-		? formatChatPlanDate(reviewPrepareReminder.startDateTime)
+	const reviewPrepareDate = reviewPrepareReminder?.dueDate
+		? formatChatPlanDate(reviewPrepareReminder.dueDate)
 		: '';
 
 	return [
@@ -1614,13 +1690,13 @@ function formatReviewSuccessMessage(
 					`Дата ревью: ${formatChatFullDateTime(calendarEvent.startDateTime)}`,
 				]
 			: []),
-		...(calendarEvent || reminderEvents.length
+		...(calendarEvent || reviewerTasks.length
 			? [
 					'',
 					'План:',
-					...reminderEvents.map(
+					...reviewerTasks.map(
 						(event) =>
-							`${formatChatPlanDate(event.startDateTime)} → ${formatPlanLabel(event.kind)}`,
+							`${formatChatPlanDate(event.dueDate)} → ${event.webViewLink ? formatChatLink(event.webViewLink, formatPlanLabel(event.kind)) : formatPlanLabel(event.kind)}`,
 					),
 					...(calendarEvent
 						? [`${formatChatPlanDate(calendarEvent.startDateTime)} → Встреча`]
@@ -1633,9 +1709,9 @@ function formatReviewSuccessMessage(
 			? [
 					'',
 					`📅 ${formatChatLink(calendarEvent.htmlLink, 'Встреча')}`,
-					...(reminderEvents.length
+					...(reviewerTasks.length
 						? [
-								'Все напоминания и встречи по ревью отображаются в вашем календаре.',
+								'Задачи подготовки и встреча по ревью отображаются в вашем календаре.',
 							]
 						: ['Встреча по ревью отображается в вашем календаре.']),
 				]
@@ -1683,12 +1759,11 @@ function formatChatLink(url: string, label: string): string {
 const FEEDBACK_FORM_CONTACT_INSTRUCTION =
 	'Напишите им лично, продублировав ссылку на форму и с напоминанием дедлайна.';
 
-const REVIEW_PLAN_LABELS: Record<CreatedReviewerReminderEvent['kind'], string> =
-	{
-		collect: 'Сбор отзывов',
-		check: 'Проверка отзывов',
-		prepare: 'Подготовка к встрече',
-	};
+const REVIEW_PLAN_LABELS: Record<CreatedReviewerTask['kind'], string> = {
+	collect: 'Сбор отзывов',
+	check: 'Проверка отзывов',
+	prepare: 'Подготовка к встрече',
+};
 
 function formatChatFullDateTime(dateTime: string): string {
 	const match = dateTime.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2})/);
@@ -1710,7 +1785,7 @@ function formatChatPlanDate(dateTime: string): string {
 	return `${day}.${month}`;
 }
 
-function formatPlanLabel(kind: CreatedReviewerReminderEvent['kind']): string {
+function formatPlanLabel(kind: CreatedReviewerTask['kind']): string {
 	return REVIEW_PLAN_LABELS[kind];
 }
 
@@ -1792,7 +1867,8 @@ async function deliverWorkflowAuthRequired(
 		message,
 	});
 
-	await params.storage.delete(params.chatUserId);
+	if (!(error instanceof OAuthPermissionsError))
+		await params.storage.delete(params.chatUserId);
 	const authUrl = await buildChatAuthUrl(
 		params.config,
 		params.event,
@@ -1840,7 +1916,7 @@ async function respondReviewerAuthRequired(
 	deps: ChatEventHandlerDeps,
 	event: ChatEvent,
 	kind: AuthRequiredResponseKind,
-	options?: { clearStaleToken?: boolean },
+	options?: { clearStaleToken?: boolean; accessUpdateRequired?: boolean },
 ): Promise<ChatResponse> {
 	if (options?.clearStaleToken) {
 		await storage.delete(chatUserId);
@@ -1861,7 +1937,15 @@ async function respondReviewerAuthRequired(
 	const message = formatAuthRequiredMessage(authUrl);
 
 	if (kind === 'dialog_card') {
-		return dialogResponse(authRequiredCard(authUrl));
+		return dialogResponse(
+			options?.accessUpdateRequired
+				? authCard(
+						'Нужно обновить доступ к Google',
+						'Боту нужны дополнительные разрешения для работы. Пройдите авторизацию повторно и предоставьте все запрошенные разрешения, затем снова вызовите /review.',
+						authUrl,
+					)
+				: authRequiredCard(authUrl),
+		);
 	}
 
 	const spaceName = resolveChatSpaceName(event);
@@ -2383,7 +2467,7 @@ function reviewerSettingsCard(
 				widgets: [
 					{
 						textParagraph: {
-							text: 'За сколько дней до встречи напомнить о каждом этапе (будут созданы задачи):',
+							text: 'За сколько дней до встречи создать задачи каждого этапа (без времени):',
 						},
 					},
 					{
@@ -2411,16 +2495,6 @@ function reviewerSettingsCard(
 							value: String(
 								settings?.taskPrepareDaysBefore ?? config.taskPrepareDaysBefore,
 							),
-						},
-					},
-					{
-						textInput: {
-							name: 'taskReminderTime',
-							label: 'Время напоминаний (HH:mm, Челябинск)',
-							value: settings?.taskReminderTime ?? config.taskReminderTime,
-							validation: {
-								characterLimit: 5,
-							},
 						},
 					},
 				],
@@ -2478,7 +2552,6 @@ function reviewerSettingsCard(
 												'taskCollectDaysBefore',
 												'taskCheckDaysBefore',
 												'taskPrepareDaysBefore',
-												'taskReminderTime',
 												'reviewIntervalMonths',
 											],
 											parameters: [
