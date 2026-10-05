@@ -10,6 +10,7 @@ export type ReviewerToken = {
 export type ReviewerSettings = {
 	chatUserId: string;
 	rootFolderId: string;
+	reviewerDisplayName?: string;
 	taskCollectDaysBefore: number;
 	taskCheckDaysBefore: number;
 	taskPrepareDaysBefore: number;

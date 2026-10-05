@@ -1,3 +1,4 @@
+import type { docs_v1 } from 'googleapis';
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import {
@@ -311,6 +312,8 @@ test('createReviewFolderInDrive creates review month folder inside matched emplo
 	const replacedTexts: Array<{ containsText?: string; replaceText?: string }> =
 		[];
 	const fetchedDocumentIds: string[] = [];
+	const richLinks: docs_v1.Schema$InsertRichLinkRequest[] = [];
+	const deletedRanges: docs_v1.Schema$Range[] = [];
 	const permissions: Array<{
 		fileId: string;
 		emailAddress?: string;
@@ -382,6 +385,26 @@ test('createReviewFolderInDrive creates review month folder inside matched emplo
 	const documents = {
 		async get(params: { documentId: string }) {
 			fetchedDocumentIds.push(params.documentId);
+			if (params.documentId === 'report-id') {
+				return {
+					data: {
+						body: {
+							content: [
+								{
+									paragraph: {
+										elements: [
+											{
+												startIndex: 1,
+												textRun: { content: '{{PREVIOUS_REVIEW_URL}}' },
+											},
+										],
+									},
+								},
+							],
+						},
+					},
+				};
+			}
 			return {
 				data: {
 					body: {
@@ -417,20 +440,17 @@ test('createReviewFolderInDrive creates review month folder inside matched emplo
 		},
 		async batchUpdate(params: {
 			documentId: string;
-			requestBody?: {
-				requests?: Array<{
-					replaceAllText?: {
-						containsText?: { text?: string };
-						replaceText?: string;
-					};
-				}>;
-			};
+			requestBody?: docs_v1.Schema$BatchUpdateDocumentRequest;
 		}) {
 			assert.equal(params.documentId, 'report-id');
 			for (const request of params.requestBody?.requests ?? []) {
+				if (request.insertRichLink) richLinks.push(request.insertRichLink);
+				if (request.deleteContentRange?.range)
+					deletedRanges.push(request.deleteContentRange.range);
+				if (!request.replaceAllText) continue;
 				replacedTexts.push({
-					containsText: request.replaceAllText?.containsText?.text,
-					replaceText: request.replaceAllText?.replaceText,
+					containsText: request.replaceAllText?.containsText?.text ?? undefined,
+					replaceText: request.replaceAllText?.replaceText ?? undefined,
 				});
 			}
 			return { data: {} };
@@ -548,7 +568,18 @@ test('createReviewFolderInDrive creates review month folder inside matched emplo
 		'https://docs.google.com/forms/client-form-id',
 	);
 	assert.deepEqual(createdParents, [['employee-folder-id']]);
-	assert.deepEqual(fetchedDocumentIds, ['previous-report-id']);
+	assert.deepEqual(fetchedDocumentIds, ['previous-report-id', 'report-id']);
+	assert.deepEqual(deletedRanges, [
+		{ startIndex: 1, endIndex: 24, tabId: undefined, segmentId: undefined },
+	]);
+	assert.deepEqual(richLinks, [
+		{
+			location: { index: 1, tabId: undefined, segmentId: undefined },
+			richLinkProperties: {
+				uri: 'https://docs.google.com/document/previous-report',
+			},
+		},
+	]);
 	assert.deepEqual(copiedFiles, [
 		{
 			fileId: 'report-template-id',
@@ -576,10 +607,6 @@ test('createReviewFolderInDrive creates review month folder inside matched emplo
 		{
 			containsText: '{{REVIEW_FOLDER_URL}}',
 			replaceText: 'https://drive.google.com/month-folder',
-		},
-		{
-			containsText: '{{PREVIOUS_REVIEW_URL}}',
-			replaceText: 'https://docs.google.com/document/previous-report',
 		},
 		{ containsText: '{{POSITION}}', replaceText: 'Senior Developer' },
 		{ containsText: '{{WORKS_SINCE}}', replaceText: '01.03.2022' },

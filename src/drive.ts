@@ -204,15 +204,7 @@ type DriveResource = {
 			params: docs_v1.Params$Resource$Documents$Batchupdate & {
 				documentId: string;
 				requestBody: docs_v1.Schema$BatchUpdateDocumentRequest & {
-					requests: Array<{
-						replaceAllText: {
-							containsText: {
-								text: string;
-								matchCase: boolean;
-							};
-							replaceText: string;
-						};
-					}>;
+					requests: docs_v1.Schema$Request[];
 				};
 			},
 		): Promise<unknown>;
@@ -901,7 +893,9 @@ async function copyReportFromTemplate(
 				replaceText('{{REVIEW_DATE}}', formatReportDate(request.reviewDate)),
 				replaceText('{{REVIEWER_NAME}}', request.reviewerName),
 				replaceText('{{REVIEW_FOLDER_URL}}', folder.webViewLink),
-				replaceText('{{PREVIOUS_REVIEW_URL}}', previousReviewUrl),
+				...(previousReviewUrl
+					? []
+					: [replaceText('{{PREVIOUS_REVIEW_URL}}', previousReviewUrl)]),
 				replaceText('{{POSITION}}', previousReviewHeader.position),
 				replaceText(
 					'{{WORKS_SINCE}}',
@@ -914,6 +908,10 @@ async function copyReportFromTemplate(
 			],
 		},
 	});
+
+	if (previousReviewUrl) {
+		await insertPreviousReviewLink(drive, data.id, previousReviewUrl);
+	}
 
 	if (
 		normalizeEmail(request.employeeEmail) !==
@@ -937,6 +935,142 @@ function formatReportDate(value: string): string {
 
 	const [, year, month, day] = match;
 	return `${day}.${month}.${year}`;
+}
+
+async function insertPreviousReviewLink(
+	drive: DriveResource,
+	documentId: string,
+	previousReviewUrl: string,
+): Promise<void> {
+	const documents = drive.documents;
+	if (!documents?.get) {
+		throw new Error(
+			'Google Docs is required to insert the previous review document',
+		);
+	}
+	const { data } = await documents.get({
+		documentId,
+		includeTabsContent: true,
+	});
+	const matches = findDocumentTextMatches(data, '{{PREVIOUS_REVIEW_URL}}');
+	if (!matches.length) {
+		throw new Error(
+			'Previous review placeholder is missing from the report template',
+		);
+	}
+	await documents.batchUpdate({
+		documentId,
+		requestBody: {
+			...(data.revisionId
+				? { writeControl: { requiredRevisionId: data.revisionId } }
+				: {}),
+			requests: matches
+				.sort((a, b) => b.range.startIndex - a.range.startIndex)
+				.flatMap(({ range, textStyle }) => {
+					const requests: docs_v1.Schema$Request[] = [
+						{ deleteContentRange: { range } },
+						{
+							insertRichLink: {
+								location: {
+									index: range.startIndex,
+									tabId: range.tabId,
+									segmentId: range.segmentId,
+								},
+								richLinkProperties: { uri: previousReviewUrl },
+							},
+						},
+					];
+					// Keep the placeholder's formatting, without inheriting its link target.
+					const style = { ...textStyle };
+					delete style.link;
+					const fields = Object.keys(style).join(',');
+					if (fields) {
+						requests.push({
+							updateTextStyle: {
+								range: { ...range, endIndex: range.startIndex + 1 },
+								textStyle: style,
+								fields,
+							},
+						});
+					}
+					return requests;
+				}),
+		},
+	});
+}
+
+type TemplateTextMatch = {
+	range: docs_v1.Schema$Range & { startIndex: number; endIndex: number };
+	textStyle?: docs_v1.Schema$TextStyle;
+};
+
+function findDocumentTextMatches(
+	document: docs_v1.Schema$Document,
+	text: string,
+): TemplateTextMatch[] {
+	const matches: TemplateTextMatch[] = [];
+	function visit(
+		elements: docs_v1.Schema$StructuralElement[],
+		tabId?: string,
+		segmentId?: string,
+	) {
+		for (const element of elements) {
+			const runs = element.paragraph?.elements ?? [];
+			const content = runs
+				.map((run) => run.textRun?.content ?? '\uFFFC')
+				.join('');
+			let offset = content.indexOf(text);
+			while (offset !== -1) {
+				let runOffset = 0;
+				for (const run of runs) {
+					const length = run.textRun?.content?.length ?? 1;
+					if (offset < runOffset + length && run.startIndex != null) {
+						const startIndex = run.startIndex + offset - runOffset;
+						matches.push({
+							range: {
+								startIndex,
+								endIndex: startIndex + text.length,
+								tabId,
+								segmentId,
+							},
+							textStyle: run.textRun?.textStyle,
+						});
+						break;
+					}
+					runOffset += length;
+				}
+				offset = content.indexOf(text, offset + text.length);
+			}
+			for (const row of element.table?.tableRows ?? []) {
+				for (const cell of row.tableCells ?? [])
+					visit(cell.content ?? [], tabId, segmentId);
+			}
+			visit(element.tableOfContents?.content ?? [], tabId, segmentId);
+		}
+	}
+	function visitContent(
+		content: docs_v1.Schema$Document | docs_v1.Schema$DocumentTab,
+		tabId?: string,
+	) {
+		visit(content.body?.content ?? [], tabId);
+		for (const [segmentId, segment] of Object.entries({
+			...content.headers,
+			...content.footers,
+			...content.footnotes,
+		})) {
+			visit(segment.content ?? [], tabId, segmentId);
+		}
+	}
+	function visitTabs(tabs: docs_v1.Schema$Tab[]) {
+		for (const tab of tabs) {
+			if (tab.documentTab)
+				visitContent(tab.documentTab, tab.tabProperties?.tabId ?? undefined);
+			visitTabs(tab.childTabs ?? []);
+		}
+	}
+	if (document.tabs?.length) visitTabs(document.tabs);
+	else visitContent(document);
+	return matches;
 }
 
 type PreviousReviewHeader = {

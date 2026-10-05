@@ -61,6 +61,7 @@ type ReviewWorkflowParams = {
 	event: ChatEvent;
 	refreshToken: string;
 	reviewerEmail: string;
+	reviewerDisplayName?: string;
 	request: ReviewRequest;
 	reviewMonth: string;
 	previousReviewId: string;
@@ -87,6 +88,7 @@ export type ScheduleBackgroundTask = (
 type ReviewerSettingsCardValues = Pick<
 	ReviewerSettings,
 	| 'rootFolderId'
+	| 'reviewerDisplayName'
 	| 'taskCollectDaysBefore'
 	| 'taskCheckDaysBefore'
 	| 'taskPrepareDaysBefore'
@@ -478,7 +480,7 @@ function buildInfoMessage(
 		'*📋 Команды*',
 		'• /review — создать новое ревью',
 		'• /status — проверить актуальность ревью',
-		'• /settings — настроить папку, периодичность и напоминания',
+		'• /settings — настроить папку, имя ревьюера, периодичность и напоминания',
 		'• /info — информация о боте и командах',
 		'',
 		'*Перед первым /review*',
@@ -488,7 +490,10 @@ function buildInfoMessage(
 		'2. Проверьте доступ к шаблонам (если доступа нет — обратитесь к HR):',
 		...templateLinks.map((link) => `  • ${link}`),
 		'',
-		'3. Укажите корневую папку ревью в /settings.',
+		'3. Откройте /settings:',
+		'  • укажите корневую папку ревью;',
+		'  • задайте имя ревьюера для отчёта (на русском);',
+		'  • назначьте дни напоминаний перед встречей.',
 		'',
 		'*Структура папок*',
 		'',
@@ -529,7 +534,16 @@ async function handleReviewerSettingsCommand(
 	}
 
 	const settings = await storage.getReviewerSettings(chatUserId);
-	return dialogResponse(reviewerSettingsCard(config, settings));
+	const reviewerDisplayName = await resolveReviewerName(
+		config,
+		deps,
+		token.refreshToken,
+		token.googleUserEmail,
+		settings?.reviewerDisplayName,
+	);
+	return dialogResponse(
+		reviewerSettingsCard(config, settings, { reviewerDisplayName }),
+	);
 }
 
 async function handleReviewerSettingsSubmit(
@@ -1009,6 +1023,7 @@ async function handleReviewSubmit(
 			event,
 			refreshToken: token.refreshToken,
 			reviewerEmail: token.googleUserEmail,
+			reviewerDisplayName: settings.reviewerDisplayName,
 			request: parsed.value,
 			reviewMonth: month,
 			previousReviewId: parsed.value.previousReviewId,
@@ -1103,6 +1118,7 @@ async function runReviewWorkflow(
 		deps,
 		refreshToken,
 		reviewerEmail,
+		params.reviewerDisplayName,
 	);
 	let folder;
 	try {
@@ -1263,7 +1279,12 @@ async function resolveReviewerName(
 	deps: ChatEventHandlerDeps,
 	refreshToken: string,
 	reviewerEmail: string,
+	reviewerDisplayName?: string,
 ): Promise<string> {
+	const displayName = reviewerDisplayName?.trim();
+	if (displayName) {
+		return displayName;
+	}
 	try {
 		return (await deps.getReviewerName(config, refreshToken)) || reviewerEmail;
 	} catch {
@@ -1437,6 +1458,7 @@ function parseReviewerSettings(
 		value: {
 			chatUserId,
 			rootFolderId,
+			reviewerDisplayName: getStringInput(inputs.reviewerDisplayName).trim(),
 			taskCollectDaysBefore: taskCollectDaysBefore.value,
 			taskCheckDaysBefore: taskCheckDaysBefore.value,
 			taskPrepareDaysBefore: taskPrepareDaysBefore.value,
@@ -2422,7 +2444,7 @@ function reviewFormCard(
 function reviewerSettingsCard(
 	config: AppConfig,
 	settings: ReviewerSettingsCardValues | null,
-	options: { error?: string } = {},
+	options: { error?: string; reviewerDisplayName?: string } = {},
 ): ChatCard {
 	return {
 		header: {
@@ -2444,6 +2466,7 @@ function reviewerSettingsCard(
 					{
 						textInput: {
 							name: 'rootFolderUrl',
+							type: 'SINGLE_LINE',
 							label: 'Ссылка на корневую папку Google Drive',
 							value: settings?.rootFolderId
 								? formatGoogleDriveFolderUrl(settings.rootFolderId)
@@ -2452,7 +2475,19 @@ function reviewerSettingsCard(
 					},
 					{
 						textInput: {
+							name: 'reviewerDisplayName',
+							type: 'SINGLE_LINE',
+							label: 'Имя и фамилия ревьюера (на русском)',
+							value:
+								options.reviewerDisplayName ??
+								settings?.reviewerDisplayName ??
+								'',
+						},
+					},
+					{
+						textInput: {
 							name: 'reviewIntervalMonths',
+							type: 'SINGLE_LINE',
 							label: 'Периодичность ревью (месяцы)',
 							value: String(
 								settings?.reviewIntervalMonths ??

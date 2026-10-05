@@ -168,6 +168,7 @@ function mapReviewerSettingsForDb(settings: ReviewerSettings) {
 	return {
 		chatUserId: settings.chatUserId,
 		rootFolderId: settings.rootFolderId,
+		reviewerDisplayName: settings.reviewerDisplayName ?? '',
 		taskCollectDaysBefore: settings.taskCollectDaysBefore,
 		taskCheckDaysBefore: settings.taskCheckDaysBefore,
 		taskPrepareDaysBefore: settings.taskPrepareDaysBefore,
@@ -180,6 +181,7 @@ function mapReviewerSettingsForDb(settings: ReviewerSettings) {
 function mapReviewerSettingsFromDb(settings: {
 	chatUserId: string;
 	rootFolderId: string;
+	reviewerDisplayName: string;
 	taskCollectDaysBefore: number;
 	taskCheckDaysBefore: number;
 	taskPrepareDaysBefore: number;
@@ -190,6 +192,7 @@ function mapReviewerSettingsFromDb(settings: {
 	return {
 		chatUserId: settings.chatUserId,
 		rootFolderId: settings.rootFolderId,
+		reviewerDisplayName: settings.reviewerDisplayName ?? '',
 		taskCollectDaysBefore: settings.taskCollectDaysBefore,
 		taskCheckDaysBefore: settings.taskCheckDaysBefore,
 		taskPrepareDaysBefore: settings.taskPrepareDaysBefore,

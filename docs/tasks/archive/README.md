@@ -38,3 +38,5 @@
 - [0035 Единый формат времени ревью](0035-review-time-format.md) — Completed: 2026-10-05
 
 - [0036 Формат дат в отчёте ревью](0036-review-report-date-format.md)
+
+- [0037 Оформление отчётов и настройки ревьюера](0037-review-report-formatting-and-settings.md) — Completed: 2026-10-05

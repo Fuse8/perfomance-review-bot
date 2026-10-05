@@ -173,7 +173,7 @@ test('/info returns bot version and review command help', async () => {
 			'*📋 Команды*',
 			'• /review — создать новое ревью',
 			'• /status — проверить актуальность ревью',
-			'• /settings — настроить папку, периодичность и напоминания',
+			'• /settings — настроить папку, имя ревьюера, периодичность и напоминания',
 			'• /info — информация о боте и командах',
 			'',
 			'*Перед первым /review*',
@@ -185,7 +185,10 @@ test('/info returns bot version and review command help', async () => {
 			'  • <https://docs.google.com/forms/d/internal-form-template-id/edit|форма для сотрудников fuse8>',
 			'  • <https://docs.google.com/forms/d/client-form-template-id/edit|форма для клиента>',
 			'',
-			'3. Укажите корневую папку ревью в /settings.',
+			'3. Откройте /settings:',
+			'  • укажите корневую папку ревью;',
+			'  • задайте имя ревьюера для отчёта (на русском);',
+			'  • назначьте дни напоминаний перед встречей.',
 			'',
 			'*Структура папок*',
 			'',
@@ -381,7 +384,11 @@ test('/settings opens dialog with default values', async () => {
 			return null;
 		},
 	};
-	const handleChatEvent = createHandler();
+	const handleChatEvent = createHandler({
+		async getReviewerName() {
+			return 'Dmitry Berdnikov';
+		},
+	});
 
 	const response = await handleChatEvent(
 		config,
@@ -393,6 +400,7 @@ test('/settings opens dialog with default values', async () => {
 	assert.equal(card.header?.title, 'Настройки ревьюера');
 	assert.deepEqual(findTextInputValues(card), {
 		rootFolderUrl: '',
+		reviewerDisplayName: 'Dmitry Berdnikov',
 		taskCollectDaysBefore: '14',
 		taskCheckDaysBefore: '7',
 		taskPrepareDaysBefore: '3',
@@ -413,7 +421,7 @@ test('/settings groups date-only task fields and a shared explanation', async ()
 	);
 	assert.deepEqual(
 		card.sections?.[0].widgets?.map((widget) => widget.textInput?.name),
-		['rootFolderUrl', 'reviewIntervalMonths'],
+		['rootFolderUrl', 'reviewerDisplayName', 'reviewIntervalMonths'],
 	);
 	assert.ok(card.sections?.[2].widgets?.every((widget) => !widget.textInput));
 	const section = card.sections?.find(
@@ -580,6 +588,7 @@ test('/settings saves validated reviewer settings', async () => {
 			taskPrepareDaysBefore: '1',
 			taskReminderTime: '09:30',
 			reviewIntervalMonths: '9',
+			reviewerDisplayName: '  Фёдор Киселёв  ',
 		}),
 	);
 
@@ -590,6 +599,7 @@ test('/settings saves validated reviewer settings', async () => {
 	assert.deepEqual(settings, {
 		chatUserId: 'users/123',
 		rootFolderId: 'reviewer-root-folder-id',
+		reviewerDisplayName: 'Фёдор Киселёв',
 		taskCollectDaysBefore: 10,
 		taskCheckDaysBefore: 5,
 		taskPrepareDaysBefore: 1,
@@ -1232,6 +1242,7 @@ test('/review uses reviewer settings for root folder and reminders', async () =>
 			return {
 				chatUserId: 'users/123',
 				rootFolderId: 'reviewer-root-folder-id',
+				reviewerDisplayName: 'Фёдор Киселёв',
 				taskCollectDaysBefore: 10,
 				taskCheckDaysBefore: 5,
 				taskPrepareDaysBefore: 1,
@@ -1245,7 +1256,8 @@ test('/review uses reviewer settings for root folder and reminders', async () =>
 		async findPreviousReviewReport() {
 			throw new Error('should not look up previous review on submit');
 		},
-		async createReviewFolder(effectiveConfig) {
+		async createReviewFolder(effectiveConfig, _refreshToken, request) {
+			assert.equal(request.reviewerName, 'Фёдор Киселёв');
 			assert.equal(
 				effectiveConfig.reviewsRootFolderId,
 				'reviewer-root-folder-id',
@@ -2510,6 +2522,7 @@ function statusCommandEvent(): ChatEvent {
 
 function settingsSubmitEvent(overrides: {
 	rootFolderUrl?: string;
+	reviewerDisplayName?: string;
 	taskCollectDaysBefore?: string;
 	taskCheckDaysBefore?: string;
 	taskPrepareDaysBefore?: string;
@@ -2529,6 +2542,9 @@ function settingsSubmitEvent(overrides: {
 				actionName: 'saveReviewerSettings',
 			},
 			formInputs: {
+				reviewerDisplayName: {
+					stringInputs: { value: [overrides.reviewerDisplayName ?? ''] },
+				},
 				rootFolderUrl: {
 					stringInputs: {
 						value: [

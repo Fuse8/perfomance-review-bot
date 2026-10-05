@@ -17,6 +17,7 @@ model ReviewerToken {
 model ReviewerSettings {
   chatUserId             String   @id
   rootFolderId           String
+  reviewerDisplayName    String   @default("")
   taskCollectDaysBefore  Int
   taskCheckDaysBefore    Int
   taskPrepareDaysBefore  Int
