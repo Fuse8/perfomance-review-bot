@@ -568,7 +568,7 @@ test('createReviewFolderInDrive creates review month folder inside matched emplo
 	]);
 	assert.deepEqual(replacedTexts, [
 		{ containsText: '{{FULL_NAME}}', replaceText: 'Ivan Petrov' },
-		{ containsText: '{{REVIEW_DATE}}', replaceText: '2026-06-15' },
+		{ containsText: '{{REVIEW_DATE}}', replaceText: '15.06.2026' },
 		{
 			containsText: '{{REVIEWER_NAME}}',
 			replaceText: 'Reviewer Name',
@@ -582,10 +582,10 @@ test('createReviewFolderInDrive creates review month folder inside matched emplo
 			replaceText: 'https://docs.google.com/document/previous-report',
 		},
 		{ containsText: '{{POSITION}}', replaceText: 'Senior Developer' },
-		{ containsText: '{{WORKS_SINCE}}', replaceText: '2022-03-01' },
+		{ containsText: '{{WORKS_SINCE}}', replaceText: '01.03.2022' },
 		{
 			containsText: '{{PREVIOUS_REVIEW_DATE}}',
-			replaceText: '2026-05-20',
+			replaceText: '20.05.2026',
 		},
 	]);
 	assert.deepEqual(permissions, [

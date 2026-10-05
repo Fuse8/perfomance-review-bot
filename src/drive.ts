@@ -898,15 +898,18 @@ async function copyReportFromTemplate(
 		requestBody: {
 			requests: [
 				replaceText('{{FULL_NAME}}', request.fullName),
-				replaceText('{{REVIEW_DATE}}', request.reviewDate),
+				replaceText('{{REVIEW_DATE}}', formatReportDate(request.reviewDate)),
 				replaceText('{{REVIEWER_NAME}}', request.reviewerName),
 				replaceText('{{REVIEW_FOLDER_URL}}', folder.webViewLink),
 				replaceText('{{PREVIOUS_REVIEW_URL}}', previousReviewUrl),
 				replaceText('{{POSITION}}', previousReviewHeader.position),
-				replaceText('{{WORKS_SINCE}}', previousReviewHeader.worksSince),
+				replaceText(
+					'{{WORKS_SINCE}}',
+					formatReportDate(previousReviewHeader.worksSince),
+				),
 				replaceText(
 					'{{PREVIOUS_REVIEW_DATE}}',
-					previousReviewHeader.previousReviewDate,
+					formatReportDate(previousReviewHeader.previousReviewDate),
 				),
 			],
 		},
@@ -924,6 +927,16 @@ async function copyReportFromTemplate(
 		name: data.name,
 		webViewLink: data.webViewLink,
 	};
+}
+
+function formatReportDate(value: string): string {
+	const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+	if (!match) {
+		return value;
+	}
+
+	const [, year, month, day] = match;
+	return `${day}.${month}.${year}`;
 }
 
 type PreviousReviewHeader = {
