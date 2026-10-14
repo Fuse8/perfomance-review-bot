@@ -41,3 +41,4 @@
 
 - [0037 Оформление отчётов и настройки ревьюера](0037-review-report-formatting-and-settings.md) — Completed: 2026-10-05
 - [0038 Шаблоны сообщений участникам ревью](0038-review-participant-messages.md) — Completed: 2026-10-05
+- [0039 Ссылка на созвон при создании ревью](0039-review-meeting-url.md) — Completed: 2026-10-14

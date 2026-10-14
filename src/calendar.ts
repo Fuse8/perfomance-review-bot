@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { google } from 'googleapis';
 import type { calendar_v3 } from 'googleapis';
 import type { AppConfig } from './config.js';
@@ -20,6 +21,7 @@ export type CalendarEventRequest = {
 	reviewerEmail: string;
 	reviewDate: string;
 	meetingTime: string;
+	meetingUrl?: string;
 	folderUrl: string;
 	reportUrl?: string;
 	internalFormUrl?: string;
@@ -56,6 +58,7 @@ export async function createCalendarEventInCalendar(
 	calendar: CalendarResource,
 	request: CalendarEventRequest,
 ): Promise<CreatedCalendarEvent> {
+	const meetingUrl = request.meetingUrl?.trim();
 	const summary = `Performance Review: ${request.fullName}`;
 	const { start, end } = buildMeetingDateTimes(
 		request.reviewDate,
@@ -63,9 +66,20 @@ export async function createCalendarEventInCalendar(
 	);
 	const { data } = await calendar.events.insert({
 		calendarId: 'primary',
+		...(!meetingUrl ? { conferenceDataVersion: 1 } : {}),
 		requestBody: {
 			summary,
-			description: buildReviewMeetingDescription(request),
+			description: buildReviewMeetingDescription({ ...request, meetingUrl }),
+			...(meetingUrl
+				? { location: meetingUrl }
+				: {
+						conferenceData: {
+							createRequest: {
+								requestId: randomUUID(),
+								conferenceSolutionKey: { type: 'hangoutsMeet' },
+							},
+						},
+					}),
 			start: {
 				dateTime: start,
 				timeZone: REVIEW_TIME_ZONE,
@@ -94,13 +108,27 @@ export async function createCalendarEventInCalendar(
 }
 
 function buildReviewMeetingDescription(request: CalendarEventRequest): string {
-	return request.reportUrl
-		? formatCalendarLink('📄', 'Отчёт', request.reportUrl)
-		: '';
+	return [
+		...(request.reportUrl
+			? [formatCalendarLink('📄', 'Отчёт', request.reportUrl)]
+			: []),
+		...(request.meetingUrl
+			? [formatCalendarLink('📹', 'Созвон', request.meetingUrl)]
+			: []),
+	].join('\n');
 }
 
 function formatCalendarLink(icon: string, label: string, url: string): string {
-	return `${icon} <a href="${url}">${label}</a>`;
+	return `${icon} <a href="${escapeCalendarHtml(url)}">${label}</a>`;
+}
+
+function escapeCalendarHtml(value: string): string {
+	return value
+		.replaceAll('&', '&amp;')
+		.replaceAll('"', '&quot;')
+		.replaceAll("'", '&#39;')
+		.replaceAll('<', '&lt;')
+		.replaceAll('>', '&gt;');
 }
 
 function buildMeetingDateTimes(

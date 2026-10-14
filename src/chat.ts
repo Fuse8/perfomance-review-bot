@@ -1172,6 +1172,7 @@ async function runReviewWorkflow(
 		reviewerEmail,
 		reviewDate: request.reviewDate,
 		meetingTime: request.meetingTime,
+		...(request.meetingUrl ? { meetingUrl: request.meetingUrl } : {}),
 		folderUrl: folder.webViewLink,
 		reportUrl: folder.report?.webViewLink,
 		internalFormUrl: folder.internalForm?.webViewLink,
@@ -1342,6 +1343,7 @@ function parseReviewRequest(
 		.toLowerCase();
 	const reviewDate = getDateInput(inputs.reviewDate);
 	const meetingTime = getStringInput(inputs.meetingTime).trim();
+	const meetingUrl = getStringInput(inputs.meetingUrl).trim();
 	const needsClientForm = getStringInput(inputs.needsClientForm) === 'yes';
 	const previousReviewId = parameters.previousReviewId ?? '';
 	const previousReviewUrl = parameters.previousReviewUrl ?? '';
@@ -1384,6 +1386,24 @@ function parseReviewRequest(
 		};
 	}
 
+	if (meetingUrl) {
+		try {
+			const url = new URL(meetingUrl);
+			if (
+				!/^https?:\/\//i.test(meetingUrl) ||
+				!['http:', 'https:'].includes(url.protocol) ||
+				!url.hostname
+			) {
+				throw new Error('Invalid meeting URL');
+			}
+		} catch {
+			return {
+				ok: false,
+				error: 'Укажите полную ссылку на созвон с http:// или https://.',
+			};
+		}
+	}
+
 	return {
 		ok: true,
 		value: {
@@ -1391,6 +1411,7 @@ function parseReviewRequest(
 			employeeEmail,
 			reviewDate,
 			meetingTime,
+			...(meetingUrl ? { meetingUrl } : {}),
 			needsClientForm,
 			previousReviewId,
 			previousReviewUrl,
@@ -2381,6 +2402,14 @@ function reviewFormCard(
 							validation: {
 								characterLimit: 5,
 							},
+						},
+					},
+					{
+						textInput: {
+							name: 'meetingUrl',
+							label: 'Ссылка на созвон',
+							hintText:
+								'Если оставить пустым, автоматически создастся Google Meet',
 						},
 					},
 					{

@@ -24,6 +24,7 @@ export type ReviewRequest = {
 	employeeEmail: string;
 	reviewDate: string;
 	meetingTime: string;
+	meetingUrl?: string;
 	needsClientForm: boolean;
 	previousReviewId: string;
 	previousReviewUrl: string;

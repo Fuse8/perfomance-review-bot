@@ -1717,6 +1717,13 @@ test('/review employee check opens review form when Drive folder exists', async 
 		},
 	});
 	assert.deepEqual(formWidgets[4], {
+		textInput: {
+			name: 'meetingUrl',
+			label: 'Ссылка на созвон',
+			hintText: 'Если оставить пустым, автоматически создастся Google Meet',
+		},
+	});
+	assert.deepEqual(formWidgets[5], {
 		selectionInput: {
 			name: 'needsClientForm',
 			type: 'CHECK_BOX',
@@ -2721,6 +2728,7 @@ function reviewSubmitEvent(
 	overrides: {
 		employeeEmail?: string;
 		meetingTime?: string;
+		meetingUrl?: string;
 		needsClientForm?: boolean;
 		chatSpaceName?: string | null;
 		previousReviewId?: string;
@@ -2771,6 +2779,9 @@ function reviewSubmitEvent(
 								: [overrides.meetingTime],
 					},
 				},
+				...(overrides.meetingUrl !== undefined
+					? { meetingUrl: { stringInputs: { value: [overrides.meetingUrl] } } }
+					: {}),
 				needsClientForm: {
 					stringInputs: {
 						value: overrides.needsClientForm === false ? [] : ['yes'],
@@ -3250,3 +3261,77 @@ test('/review keeps template deadlines when no reviewer tasks were created', asy
 		),
 	);
 });
+
+for (const meetingUrl of [
+	undefined,
+	'',
+	'   ',
+	'  https://call.example.test/room  ',
+	'http://call.example.test/room',
+]) {
+	test(`/review passes optional meeting URL ${JSON.stringify(meetingUrl)} to calendar only`, async () => {
+		const calendarUrls: Array<string | undefined> = [];
+		const messages: string[] = [];
+		const handleChatEvent = createHandler({
+			async createReviewFolder() {
+				return {
+					id: 'folder-id',
+					name: '2026.06',
+					webViewLink: 'https://drive.example.test/folder',
+				};
+			},
+			async createCalendarEvent(_config, _token, request) {
+				calendarUrls.push(request.meetingUrl);
+				return {
+					id: 'event-id',
+					summary: 'Review',
+					htmlLink: 'https://calendar.example.test/event',
+					startDateTime: '2026-06-15T14:30:00+05:00',
+				};
+			},
+			async sendChatMessage(_config, _space, text) {
+				messages.push(text);
+			},
+		});
+		await handleChatEvent(config, storage, reviewSubmitEvent({ meetingUrl }));
+		await flushBackgroundTasks();
+		assert.deepEqual(calendarUrls, [meetingUrl?.trim() || undefined]);
+		assert.ok(
+			messages.some((text) =>
+				text.includes('https://calendar.example.test/event'),
+			),
+		);
+		assert.ok(messages.every((text) => !text.includes('call.example.test')));
+	});
+}
+
+for (const meetingUrl of [
+	'not-a-url',
+	'call.example.test/room',
+	'ftp://call.example.test/room',
+	'javascript:alert(1)',
+	'https://',
+	'https:call.example.test',
+]) {
+	test(`/review rejects invalid meeting URL ${meetingUrl} before creating materials`, async () => {
+		let externalCalls = 0;
+		const handleChatEvent = createHandler({
+			async createReviewFolder() {
+				externalCalls++;
+				throw new Error('Unexpected folder creation');
+			},
+			async createCalendarEvent() {
+				externalCalls++;
+				throw new Error('Unexpected calendar creation');
+			},
+		});
+		const response = await handleChatEvent(
+			config,
+			storage,
+			reviewSubmitEvent({ meetingUrl }),
+		);
+		await flushBackgroundTasks();
+		assert.match(getResponseText(response), /Укажите полную ссылку на созвон/);
+		assert.equal(externalCalls, 0);
+	});
+}
