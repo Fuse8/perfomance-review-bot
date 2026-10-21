@@ -2028,19 +2028,19 @@ test('/review submit creates a test folder and returns its link', async () => {
 			'',
 			'*Коллегам fuse8:*',
 			'Привет! Ivan Petrov проходит Performance Review, прошу оставить отзыв.',
-			'Дедлайн — вечер пятницы (5 июня).',
-			'Если по работе не пересекались, отметь это в отзыве.',
+			'*Дедлайн — вечер пятницы (5 июня).*',
+			'_Если по работе не пересекались, отметь это в отзыве._',
 			'https://docs.google.com/forms/d/e/internal-form/viewform',
 			'',
 			'*Клиенту:*',
 			'Привет! Ivan Petrov проходит Performance Review, прошу оставить отзыв.',
-			'Дедлайн — вечер пятницы (5 июня).',
-			'Если по работе не пересекались, отметь это в отзыве.',
+			'*Дедлайн — вечер пятницы (5 июня).*',
+			'_Если по работе не пересекались, отметь это в отзыве._',
 			'https://docs.google.com/forms/d/e/client-form/viewform',
 			'',
 			'*Самому сотруднику:*',
 			'Привет, заполни саморевью для проведения PR.',
-			'Дедлайн — вечер четверга (11 июня).',
+			'*Дедлайн — вечер четверга (11 июня).*',
 			'https://docs.google.com/document/report-id',
 		].join('\n'),
 	);
@@ -3103,12 +3103,12 @@ for (const authFailure of [false, true]) {
 		assert.match(messages[1], /Создано задач: 1/);
 		assert.ok(
 			messages[1].includes(
-				'Привет! Ivan Petrov проходит Performance Review, прошу оставить отзыв.\nДедлайн — вечер пятницы (5 июня).',
+				'Привет! Ivan Petrov проходит Performance Review, прошу оставить отзыв.\n*Дедлайн — вечер пятницы (5 июня).*',
 			),
 		);
 		assert.ok(
 			messages[1].includes(
-				'Привет, заполни саморевью для проведения PR.\nДедлайн — вечер четверга (11 июня).',
+				'Привет, заполни саморевью для проведения PR.\n*Дедлайн — вечер четверга (11 июня).*',
 			),
 		);
 		assert.ok(messages[1].includes('https://example.test/folder'));
@@ -3257,7 +3257,7 @@ test('/review keeps template deadlines when no reviewer tasks were created', asy
 	await flushBackgroundTasks();
 	assert.ok(
 		messages[1].includes(
-			'Привет, заполни саморевью для проведения PR.\nДедлайн — вечер четверга (11 июня).\nhttps://example.test/report',
+			'Привет, заполни саморевью для проведения PR.\n*Дедлайн — вечер четверга (11 июня).*\nhttps://example.test/report',
 		),
 	);
 });

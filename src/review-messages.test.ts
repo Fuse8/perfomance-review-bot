@@ -15,7 +15,10 @@ for (const [reviewDate, daysBefore, expected] of [
 	['2024-03-01', 0, 'Дедлайн — вечер четверга (29 февраля).'],
 ] as const) {
 	test(`participant deadline: ${reviewDate}, offset ${daysBefore}`, () => {
-		assert.equal(formatParticipantDeadline(reviewDate, daysBefore), expected);
+		assert.equal(
+			formatParticipantDeadline(reviewDate, daysBefore),
+			`*${expected}*`,
+		);
 	});
 }
 
@@ -53,12 +56,12 @@ test('templates use respondent links, separate deadlines and compact lines', () 
 	).join('\n');
 	assert.ok(
 		text.includes(
-			'Привет! Виктор Облешев проходит Performance Review, прошу оставить отзыв.\nДедлайн — вечер пятницы (5 июня).\nЕсли по работе не пересекались, отметь это в отзыве.\nhttps://example.test/internal/viewform',
+			'Привет! Виктор Облешев проходит Performance Review, прошу оставить отзыв.\n*Дедлайн — вечер пятницы (5 июня).*\n_Если по работе не пересекались, отметь это в отзыве._\nhttps://example.test/internal/viewform',
 		),
 	);
 	assert.ok(
 		text.includes(
-			'Привет, заполни саморевью для проведения PR.\nДедлайн — вечер четверга (11 июня).\nhttps://example.test/report',
+			'Привет, заполни саморевью для проведения PR.\n*Дедлайн — вечер четверга (11 июня).*\nhttps://example.test/report',
 		),
 	);
 	assert.ok(text.includes('https://example.test/client/viewform'));

@@ -28,7 +28,7 @@ export function formatParticipantDeadline(
 		month: 'long',
 		timeZone: 'UTC',
 	}).format(date);
-	return `Дедлайн — вечер ${weekdays[date.getUTCDay()]} (${monthAndDay}).`;
+	return `*Дедлайн — вечер ${weekdays[date.getUTCDay()]} (${monthAndDay}).*`;
 }
 
 export function formatReviewParticipantMessages(
@@ -58,7 +58,7 @@ export function formatReviewParticipantMessages(
 		blocks.push(
 			`Привет! ${fullName} проходит Performance Review, прошу оставить отзыв.`,
 			feedbackDeadline,
-			'Если по работе не пересекались, отметь это в отзыве.',
+			'_Если по работе не пересекались, отметь это в отзыве._',
 			form.responderUri,
 		);
 	}

@@ -68,6 +68,7 @@ pnpm dev
 - [docs/adr.md](docs/adr.md) - устойчивые технические решения
 - [docs/product-spec.md](docs/product-spec.md) - продуктовая спецификация
 - [docs/architecture.md](docs/architecture.md) - архитектура и ключевые модули
+- [docs/limitations.md](docs/limitations.md) - ограничения интеграций
 - [docs/development.md](docs/development.md) - локальная разработка
 - [docs/testing.md](docs/testing.md) - проверки и тесты
 - [docs/google-chat-bot-setup.md](docs/google-chat-bot-setup.md) - настройка Google Chat app
