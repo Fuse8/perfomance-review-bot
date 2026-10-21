@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { OAuthPermissionsError } from './oauth.js';
-import { ReviewerTasksCreationError } from './tasks.js';
+import {
+	createReviewerTasksInTasks,
+	ReviewerTasksCreationError,
+} from './tasks.js';
 import type { AppConfig } from './config.js';
 import { createChatEventHandler, getDirectorySearchQuery } from './chat.js';
 import type { AppStorage } from './storage.js';
@@ -86,26 +89,29 @@ function createHandler(overrides: Partial<ChatEventHandlerDeps> = {}) {
 			};
 		},
 		async createReviewerTasks() {
-			return [
-				{
-					kind: 'collect',
-					id: 'collect-reminder-id',
-					title: 'Запустить сбор отзывов для PR Ivan Petrov',
-					dueDate: '2026-05-26',
-				},
-				{
-					kind: 'check',
-					id: 'check-reminder-id',
-					title: 'Проверить отзывы для PR Ivan Petrov',
-					dueDate: '2026-06-04',
-				},
-				{
-					kind: 'prepare',
-					id: 'prepare-reminder-id',
-					title: 'Подготовиться к проведению PR Ivan Petrov',
-					dueDate: '2026-06-10',
-				},
-			];
+			return {
+				skippedTasks: [],
+				createdTasks: [
+					{
+						kind: 'collect',
+						id: 'collect-reminder-id',
+						title: 'Запустить сбор отзывов для PR Ivan Petrov',
+						dueDate: '2026-05-26',
+					},
+					{
+						kind: 'check',
+						id: 'check-reminder-id',
+						title: 'Проверить отзывы для PR Ivan Petrov',
+						dueDate: '2026-06-04',
+					},
+					{
+						kind: 'prepare',
+						id: 'prepare-reminder-id',
+						title: 'Подготовиться к проведению PR Ivan Petrov',
+						dueDate: '2026-06-10',
+					},
+				],
+			};
 		},
 		async getReviewerName() {
 			return 'reviewer@example.test';
@@ -1284,7 +1290,7 @@ test('/review uses reviewer settings for root folder and reminders', async () =>
 			assert.equal(effectiveConfig.taskCheckDaysBefore, 5);
 			assert.equal(effectiveConfig.taskPrepareDaysBefore, 1);
 			assert.equal(effectiveConfig.taskReminderTime, '09:30');
-			return [];
+			return { skippedTasks: [], createdTasks: [] };
 		},
 		async sendChatMessage(_config, spaceName, text) {
 			sentMessages.push({ spaceName, text });
@@ -1971,20 +1977,23 @@ test('/review submit creates a test folder and returns its link', async () => {
 				previousReviewUrl:
 					'https://docs.google.com/document/previous-report-id',
 			});
-			return [
-				{
-					kind: 'check',
-					id: 'check-reminder-id',
-					title: 'Проверить отзывы для PR Ivan Petrov',
-					dueDate: '2026-06-04',
-				},
-				{
-					kind: 'prepare',
-					id: 'prepare-reminder-id',
-					title: 'Подготовиться к проведению PR Ivan Petrov',
-					dueDate: '2026-06-10',
-				},
-			];
+			return {
+				skippedTasks: [],
+				createdTasks: [
+					{
+						kind: 'check',
+						id: 'check-reminder-id',
+						title: 'Проверить отзывы для PR Ivan Petrov',
+						dueDate: '2026-06-04',
+					},
+					{
+						kind: 'prepare',
+						id: 'prepare-reminder-id',
+						title: 'Подготовиться к проведению PR Ivan Petrov',
+						dueDate: '2026-06-10',
+					},
+				],
+			};
 		},
 		async sendChatMessage(_config, spaceName, text) {
 			sentMessages.push({ spaceName, text });
@@ -2076,7 +2085,7 @@ test('/review submit mentions only the meeting when all reminders are skipped', 
 			};
 		},
 		async createReviewerTasks() {
-			return [];
+			return { skippedTasks: [], createdTasks: [] };
 		},
 		async sendChatMessage(_config, _spaceName, text) {
 			sentMessages.push(text);
@@ -2092,6 +2101,7 @@ test('/review submit mentions only the meeting when all reminders are skipped', 
 		/Встреча по ревью отображается в вашем календаре\./,
 	);
 	assert.doesNotMatch(messageText, /Все напоминания и встречи/);
+	assert.doesNotMatch(messageText, /задачу не создавал/);
 });
 
 test('/review submit falls back to reviewer email when profile name is missing', async () => {
@@ -3046,6 +3056,7 @@ test('/review Tasks service preflight failure stops before creating any material
 	await handler(config, storage, reviewSubmitEvent());
 	await flushBackgroundTasks();
 	assert.match(messages[1], /Материалы ревью не созданы/);
+	assert.doesNotMatch(messages[1], /задачу не создавал/);
 });
 
 for (const authFailure of [false, true]) {
@@ -3101,6 +3112,7 @@ for (const authFailure of [false, true]) {
 		await flushBackgroundTasks();
 		assert.equal(taskCalls, 1);
 		assert.match(messages[1], /Создано задач: 1/);
+		assert.doesNotMatch(messages[1], /задачу не создавал/);
 		assert.ok(
 			messages[1].includes(
 				'Привет! Ivan Petrov проходит Performance Review, прошу оставить отзыв.\n*Дедлайн — вечер пятницы (5 июня).*',
@@ -3247,7 +3259,7 @@ test('/review keeps template deadlines when no reviewer tasks were created', asy
 			};
 		},
 		async createReviewerTasks() {
-			return [];
+			return { skippedTasks: [], createdTasks: [] };
 		},
 		async sendChatMessage(_config, _space, text) {
 			messages.push(text);
@@ -3333,5 +3345,132 @@ for (const meetingUrl of [
 		await flushBackgroundTasks();
 		assert.match(getResponseText(response), /Укажите полную ссылку на созвон/);
 		assert.equal(externalCalls, 0);
+	});
+}
+
+for (const failAt of [undefined, 0, 1]) {
+	test(`/review explains outdated collect with actual Tasks result (failAt=${failAt})`, async () => {
+		const messages: string[] = [];
+		let inserted = 0;
+		const handler = createHandler({
+			async createReviewFolder() {
+				return {
+					id: 'folder',
+					name: 'review',
+					webViewLink: 'https://example.test/folder',
+				};
+			},
+			getCurrentDate() {
+				return new Date('2026-06-01T00:00:00Z');
+			},
+			async createReviewerTasks(settings, _token, request, now) {
+				return createReviewerTasksInTasks(
+					{
+						tasks: {
+							async insert() {
+								if (inserted === failAt) throw new Error('Tasks unavailable');
+								return { data: { id: `task-${++inserted}` } };
+							},
+						},
+					},
+					settings,
+					request,
+					now,
+				);
+			},
+			async sendChatMessage(_config, _space, text) {
+				messages.push(text);
+			},
+		});
+		await handler(config, storage, reviewSubmitEvent());
+		await flushBackgroundTasks();
+		assert.ok(
+			messages[1].includes(
+				'сегодня → Сбор отзывов (задачу не создавал, нужно сделать сейчас)',
+			),
+		);
+		assert.equal(
+			(messages[1].match(/сегодня → Сбор отзывов/g) ?? []).length,
+			1,
+		);
+		assert.doesNotMatch(messages[1], /Задача сбора отзывов не создана/);
+		if (failAt !== undefined) {
+			assert.match(messages[1], new RegExp(`Создано задач: ${failAt}`));
+			assert.match(messages[1], /Ошибка Google Tasks: Tasks unavailable/);
+		} else {
+			assert.doesNotMatch(messages[1], /Ошибка Google Tasks/);
+		}
+	});
+}
+
+for (const now of ['2026-06-08T00:00:00Z', '2026-06-12T00:00:00Z']) {
+	test(`/review puts all skipped stages first without links or duplicate explanation (${now})`, async () => {
+		const messages: string[] = [];
+		let inserted = 0;
+		const handler = createHandler({
+			async createReviewFolder() {
+				return {
+					id: 'folder',
+					name: 'review',
+					webViewLink: 'https://example.test/folder',
+				};
+			},
+			getCurrentDate() {
+				return new Date(now);
+			},
+			async createReviewerTasks(settings, _token, request, currentDate) {
+				return createReviewerTasksInTasks(
+					{
+						tasks: {
+							async insert() {
+								return {
+									data: {
+										id: `task-${++inserted}`,
+										webViewLink: 'https://example.test/task',
+									},
+								};
+							},
+						},
+					},
+					settings,
+					request,
+					currentDate,
+				);
+			},
+			async sendChatMessage(_config, _space, text) {
+				messages.push(text);
+			},
+		});
+		await handler(config, storage, reviewSubmitEvent());
+		await flushBackgroundTasks();
+		const lines = messages[1].split('\n');
+		const planStart = lines.indexOf('*План:*');
+		const skippedLabels = [
+			'Сбор отзывов',
+			'Проверка отзывов',
+			...(now.startsWith('2026-06-12') ? ['Подготовка к встрече'] : []),
+		];
+		assert.deepEqual(
+			lines.slice(planStart + 1, planStart + 1 + skippedLabels.length),
+			skippedLabels.map(
+				(label) =>
+					`сегодня → ${label} (задачу не создавал, нужно сделать сейчас)`,
+			),
+		);
+		assert.doesNotMatch(messages[1], /Задача сбора отзывов не создана/);
+		if (skippedLabels.length === 3) {
+			assert.equal(inserted, 0);
+			assert.doesNotMatch(messages[1], /https:\/\/example.test\/task/);
+			assert.match(
+				messages[1],
+				/Встреча по ревью отображается в вашем календаре/,
+			);
+		} else {
+			assert.equal(inserted, 1);
+			assert.equal(
+				lines[planStart + 3],
+				'12.06 → <https://example.test/task|Подготовка к встрече>',
+			);
+		}
 	});
 }

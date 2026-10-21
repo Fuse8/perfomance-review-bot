@@ -11,6 +11,13 @@ export type CreatedReviewerTask = {
 	webViewLink?: string;
 };
 
+export type SkippedReviewerTask = Pick<CreatedReviewerTask, 'kind' | 'dueDate'>;
+
+export type ReviewerTasksResult = {
+	createdTasks: CreatedReviewerTask[];
+	skippedTasks: SkippedReviewerTask[];
+};
+
 type ReviewerTaskSettings = Pick<
 	AppConfig,
 	'taskCollectDaysBefore' | 'taskCheckDaysBefore' | 'taskPrepareDaysBefore'
@@ -28,6 +35,7 @@ export class ReviewerTasksCreationError extends Error {
 	constructor(
 		readonly createdTasks: CreatedReviewerTask[],
 		cause: unknown,
+		readonly skippedTasks: SkippedReviewerTask[] = [],
 	) {
 		super(cause instanceof Error ? cause.message : String(cause), { cause });
 		this.name = 'ReviewerTasksCreationError';
@@ -55,7 +63,7 @@ export async function createReviewerTasks(
 	refreshToken: string,
 	request: CalendarEventRequest,
 	currentDate = new Date(),
-): Promise<CreatedReviewerTask[]> {
+): Promise<ReviewerTasksResult> {
 	return createReviewerTasksInTasks(
 		createTasksClient(config, refreshToken),
 		config,
@@ -69,7 +77,7 @@ export async function createReviewerTasksInTasks(
 	settings: ReviewerTaskSettings,
 	request: CalendarEventRequest,
 	currentDate = new Date(),
-): Promise<CreatedReviewerTask[]> {
+): Promise<ReviewerTasksResult> {
 	const reminders = [
 		{
 			kind: 'collect' as const,
@@ -87,17 +95,24 @@ export async function createReviewerTasksInTasks(
 			daysBefore: settings.taskPrepareDaysBefore,
 		},
 	];
-	const today = new Date(currentDate.getTime() + 5 * 60 * 60 * 1000)
-		.toISOString()
-		.slice(0, 10);
+	const today = new Intl.DateTimeFormat('en-CA', {
+		timeZone: 'Asia/Yekaterinburg',
+		year: 'numeric',
+		month: '2-digit',
+		day: '2-digit',
+	}).format(currentDate);
 	const createdTasks: CreatedReviewerTask[] = [];
+	const scheduledTasks = reminders.map((reminder) => ({
+		...reminder,
+		dueDate: buildReviewerReminderDate(request.reviewDate, reminder.daysBefore),
+	}));
+	const skippedTasks: SkippedReviewerTask[] = scheduledTasks
+		.filter((task) => task.dueDate <= today)
+		.map(({ kind, dueDate }) => ({ kind, dueDate }));
 	try {
-		for (const reminder of reminders) {
-			const dueDate = buildReviewerReminderDate(
-				request.reviewDate,
-				reminder.daysBefore,
-			);
-			if (dueDate < today) continue;
+		for (const reminder of scheduledTasks) {
+			const { dueDate } = reminder;
+			if (dueDate <= today) continue;
 			const { data } = await tasks.tasks.insert({
 				tasklist: '@default',
 				requestBody: {
@@ -118,9 +133,9 @@ export async function createReviewerTasksInTasks(
 			});
 		}
 	} catch (error) {
-		throw new ReviewerTasksCreationError(createdTasks, error);
+		throw new ReviewerTasksCreationError(createdTasks, error, skippedTasks);
 	}
-	return createdTasks;
+	return { createdTasks, skippedTasks };
 }
 
 function buildTaskNotes(request: CalendarEventRequest): string {

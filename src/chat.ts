@@ -7,6 +7,8 @@ import {
 	verifyReviewerTasksAccess,
 	ReviewerTasksCreationError,
 	type CreatedReviewerTask,
+	type ReviewerTasksResult,
+	type SkippedReviewerTask,
 } from './tasks.js';
 import {
 	createReviewFolder,
@@ -1215,9 +1217,9 @@ async function runReviewWorkflow(
 		hasLink: Boolean(calendarEvent.htmlLink),
 	});
 
-	let reviewerTasks: CreatedReviewerTask[];
+	let tasksResult: ReviewerTasksResult;
 	try {
-		reviewerTasks = await deps.createReviewerTasks(
+		tasksResult = await deps.createReviewerTasks(
 			config,
 			refreshToken,
 			calendarRequest,
@@ -1226,12 +1228,14 @@ async function runReviewWorkflow(
 	} catch (error) {
 		const createdTasks =
 			error instanceof ReviewerTasksCreationError ? error.createdTasks : [];
+		const skippedTasks =
+			error instanceof ReviewerTasksCreationError ? error.skippedTasks : [];
 		const message = error instanceof Error ? error.message : String(error);
 		logChatEvent('submit.createReviewerTasks.failed', {
 			message,
 			count: createdTasks.length,
 		});
-		let errorText = `${formatReviewSuccessMessage(request.fullName, folder, request.needsClientForm, calendarEvent, createdTasks, request.reviewDate, config)}
+		let errorText = `${formatReviewSuccessMessage(request.fullName, folder, request.needsClientForm, calendarEvent, createdTasks, request.reviewDate, config, skippedTasks)}
 
 Не удалось создать все задачи подготовки. Создано задач: ${createdTasks.length}.
 Ошибка Google Tasks: ${message}
@@ -1256,6 +1260,7 @@ async function runReviewWorkflow(
 			hasCalendar: true,
 		};
 	}
+	const reviewerTasks = tasksResult.createdTasks;
 	logChatEvent('submit.createReviewerTasks.success', {
 		count: reviewerTasks.length,
 	});
@@ -1268,6 +1273,7 @@ async function runReviewWorkflow(
 		reviewerTasks,
 		request.reviewDate,
 		config,
+		tasksResult.skippedTasks,
 	);
 
 	await deliverWorkflowResultToChat(config, deps, event, successText);
@@ -1722,16 +1728,21 @@ function formatReviewSuccessMessage(
 	reviewerTasks: CreatedReviewerTask[],
 	reviewDate: string,
 	settings: AppConfig,
+	skippedTasks: SkippedReviewerTask[] = [],
 ): string {
 	return [
 		`*Performance Review — ${fullName}*`,
 		...(calendarEvent
 			? [`Дата ревью: ${formatChatFullDateTime(calendarEvent.startDateTime)}`]
 			: []),
-		...(calendarEvent || reviewerTasks.length
+		...(calendarEvent || reviewerTasks.length || skippedTasks.length
 			? [
 					'',
 					'*План:*',
+					...skippedTasks.map(
+						(task) =>
+							`сегодня → ${formatPlanLabel(task.kind)} (задачу не создавал, нужно сделать сейчас)`,
+					),
 					...reviewerTasks.map(
 						(event) =>
 							`${formatChatPlanDate(event.dueDate)} → ${event.webViewLink ? formatChatLink(event.webViewLink, formatPlanLabel(event.kind)) : formatPlanLabel(event.kind)}`,
